@@ -14,7 +14,7 @@
 #include <numeric>
 #include <filesystem>
 
-#include <gl/gl3w.h>
+#include <gl/glew.h>
 #include <GLFW/glfw3.h>
 #include <stb_image.h>
 #include <glm/glm.hpp>
@@ -142,6 +142,36 @@ std::tuple<GLuint, GLuint, GLuint> create_program(std::string_view vert_filepath
 	glUseProgramStages(pipeline, GL_FRAGMENT_SHADER_BIT, frag);
 
 	return std::make_tuple(pipeline, vert, frag);
+}
+
+std::tuple<GLuint, GLuint, GLuint> create_program_nv(std::string_view mesh_filepath, std::string_view frag_filepath)
+{
+	GLint max_mesh_output_vertices = 0;
+	GLint max_mesh_output_primitives = 0;
+
+	glGetIntegerv(GL_MAX_MESH_OUTPUT_VERTICES_NV, &max_mesh_output_vertices);
+	glGetIntegerv(GL_MAX_MESH_OUTPUT_VERTICES_NV, &max_mesh_output_primitives);
+
+	std::cout << "Max mes output vertices: " << max_mesh_output_vertices << std::endl;
+	std::cout << "Max mes output primitives: " << max_mesh_output_primitives << std::endl;
+
+	auto const mesh_source = read_text_file(mesh_filepath);
+	auto const frag_source = read_text_file(frag_filepath);
+
+	auto const m_ptr = mesh_source.data();
+	auto const f_ptr = frag_source.data();
+	GLuint pipeline = 0;
+	auto mesh = glCreateShaderProgramv(GL_MESH_SHADER_NV, 1, &m_ptr);
+	auto frag = glCreateShaderProgramv(GL_FRAGMENT_SHADER, 1, &f_ptr);
+
+	validate_program(mesh, mesh_filepath);
+	validate_program(frag, frag_filepath);
+
+	glCreateProgramPipelines(1, &pipeline);
+	glUseProgramStages(pipeline, GL_MESH_SHADER_BIT_NV, mesh);
+	glUseProgramStages(pipeline, GL_FRAGMENT_SHADER_BIT, frag);
+
+	return std::make_tuple(pipeline, mesh, frag);
 }
 
 GLuint create_shader(GLuint vert, GLuint frag)
@@ -309,8 +339,8 @@ inline void delete_shader(GLuint pr, GLuint vs, GLuint fs)
 	glDeleteProgram(fs);
 }
 
-using glDeleterFunc = void (APIENTRYP)(GLuint item);
-using glDeleterFuncv = void (APIENTRYP)(GLsizei n, const GLuint* items);
+using glDeleterFunc = void (APIENTRY *)(GLuint item);
+using glDeleterFuncv = void (APIENTRY *)(GLsizei n, const GLuint* items);
 inline void delete_items(glDeleterFuncv deleter, std::initializer_list<GLuint> items) { deleter(static_cast<GLsizei>(items.size()), items.begin()); }
 inline void delete_items(glDeleterFunc deleter, std::initializer_list<GLuint> items)
 {
@@ -520,7 +550,7 @@ int main(int argc, char* argv[])
 		return std::pair<int, int>(display_w, display_h);
 	}();
 
-	if (gl3wInit())
+	if (glewInit())
 	{
 		glfwDestroyWindow(window);
 		glfwTerminate();
@@ -646,7 +676,8 @@ int main(int argc, char* argv[])
 	auto const [vao_quad, vbo_quad, ibo_quad] = create_geometry(vertices_quad, indices_quad, vertex_format);
 
 	/* shaders */
-	auto const [pr, vert_shader, frag_shader] = create_program("./shaders/main.vert", "./shaders/main.frag");
+	//auto const [pr, vert_shader, frag_shader] = create_program("./shaders/main.vert", "./shaders/main.frag");
+	auto const [pr, mesh_shader, frag_shader] = create_program_nv("./shaders/main.mesh", "./shaders/main.frag");
 	auto const [pr_g, vert_shader_g, frag_shader_g] = create_program("./shaders/gbuffer.vert", "./shaders/gbuffer.frag");
 	auto const [pr_blur, vert_shader_blur, frag_shader_blur] = create_program("./shaders/blur.vert", "./shaders/blur.frag");
 
@@ -809,15 +840,16 @@ int main(int argc, char* argv[])
 		glBindVertexArray(vao_empty);
 
 		set_uniform(frag_shader, uniform_cam_pos, camera_position);
-		set_uniform(vert_shader, uniform_cam_dir, glm::inverse(glm::mat3(camera_view)));
-		set_uniform(vert_shader, uniform_fov, fov);
-		set_uniform(vert_shader, uniform_aspect, float(viewport_width) / float(viewport_height));
-		set_uniform(vert_shader, uniform_uvs_diff, glm::vec2(
+		set_uniform(mesh_shader, uniform_cam_dir, glm::inverse(glm::mat3(camera_view)));
+		set_uniform(mesh_shader, uniform_fov, fov);
+		set_uniform(mesh_shader, uniform_aspect, float(viewport_width) / float(viewport_height));
+		set_uniform(mesh_shader, uniform_uvs_diff, glm::vec2(
 			float(viewport_width) / float(screen_width),
 			float(viewport_height) / float(screen_height)
 		));
 
-		glDrawArrays(GL_TRIANGLES, 0, 6);
+		//glDrawArrays(GL_TRIANGLES, 0, 6);
+		//glDrawMeshTasksNV(0, 1);
 
 		/* motion blur */
 
@@ -874,7 +906,7 @@ int main(int argc, char* argv[])
 		texture_motion_blur_mask
 		});
 	delete_items(glDeleteProgram, {
-		vert_shader,
+		mesh_shader,
 		frag_shader,
 
 		vert_shader_g,

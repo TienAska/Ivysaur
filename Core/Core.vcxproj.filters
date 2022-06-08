@@ -30,4 +30,27 @@
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="..\x64\Debug\shaders\blur.vert">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\x64\Debug\shaders\gbuffer.frag">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\x64\Debug\shaders\gbuffer.vert">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\x64\Debug\shaders\main.frag">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\x64\Debug\shaders\main.vert">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\x64\Debug\shaders\blur.frag">
+      <Filter>Resource Files</Filter>
+    </None>
+    <None Include="..\x64\Debug\shaders\main.mesh">
+      <Filter>Resource Files</Filter>
+    </None>
+  </ItemGroup>
 </Project>

@@ -54,6 +54,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>opengl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -79,6 +80,15 @@
     <ClInclude Include="cyCodeBase\cyCore.h" />
     <ClInclude Include="cyCodeBase\cyTriMesh.h" />
     <ClInclude Include="cyCodeBase\cyVector.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\x64\Debug\shaders\blur.frag" />
+    <None Include="..\x64\Debug\shaders\blur.vert" />
+    <None Include="..\x64\Debug\shaders\gbuffer.frag" />
+    <None Include="..\x64\Debug\shaders\gbuffer.vert" />
+    <None Include="..\x64\Debug\shaders\main.frag" />
+    <None Include="..\x64\Debug\shaders\main.mesh" />
+    <None Include="..\x64\Debug\shaders\main.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
