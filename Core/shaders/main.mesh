@@ -1,0 +1,72 @@
+#version 450
+
+#extension GL_NV_mesh_shader : require
+
+layout(triangles, max_vertices=6, max_primitives=2) out;
+ 
+out gl_PerVertex
+{
+	vec4 gl_Position; 
+} MeshPerVertexNV[];
+
+layout(location = 0) uniform mat3 u_camera_direction;
+layout(location = 1) uniform float u_fov;
+layout(location = 2) uniform float u_ratio;
+layout(location = 3) uniform vec2 u_uv_diff;
+
+out in_block
+{
+	vec2 texcoord;
+	vec3 ray;
+} o[];
+
+vec3 skyray(vec2 texcoord, float fovy, float aspect)
+{
+	float d = 0.5 / tan(fovy / 2.0);
+	return normalize(vec3((texcoord.x - 0.5) * aspect, texcoord.y - 0.5, -d));
+}
+
+void main()
+{
+	vec2 v[] = {
+		vec2(-1.0f, 1.0f),
+		vec2(1.0f, 1.0f),
+		vec2(1.0f,-1.0f),
+		vec2(-1.0f,-1.0f)
+	};
+	vec2 t[] = {
+		vec2(0.0f, 1.0f),
+		vec2(1.0f, 1.0f),
+		vec2(1.0f, 0.0f),
+		vec2(0.0f, 0.0f)
+
+	};
+
+	MeshPerVertexNV[0].gl_Position = vec4(v[0], 0.0, 1.0);
+	MeshPerVertexNV[1].gl_Position = vec4(v[1], 0.0, 1.0);
+	MeshPerVertexNV[2].gl_Position = vec4(v[2], 0.0, 1.0);
+	MeshPerVertexNV[3].gl_Position = vec4(v[3], 0.0, 1.0);
+
+	o[0].texcoord = t[0];
+	o[1].texcoord = t[1];
+	o[2].texcoord = t[2];
+	o[3].texcoord = t[3];
+
+	o[0].ray = u_camera_direction * skyray(o[0].texcoord, u_fov, u_ratio);
+	o[1].ray = u_camera_direction * skyray(o[1].texcoord, u_fov, u_ratio);
+	o[2].ray = u_camera_direction * skyray(o[2].texcoord, u_fov, u_ratio);
+	o[3].ray = u_camera_direction * skyray(o[3].texcoord, u_fov, u_ratio);
+	o[0].texcoord = o[0].texcoord * u_uv_diff;
+	o[1].texcoord = o[1].texcoord * u_uv_diff;
+	o[2].texcoord = o[2].texcoord * u_uv_diff;
+	o[3].texcoord = o[3].texcoord * u_uv_diff;
+
+	gl_PrimitiveIndicesNV[0] = 0;
+	gl_PrimitiveIndicesNV[1] = 3;
+	gl_PrimitiveIndicesNV[2] = 2;
+	gl_PrimitiveIndicesNV[3] = 2;
+	gl_PrimitiveIndicesNV[4] = 1;
+	gl_PrimitiveIndicesNV[5] = 0;
+
+	gl_PrimitiveCountNV = 2;
+}

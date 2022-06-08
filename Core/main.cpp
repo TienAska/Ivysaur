@@ -123,6 +123,22 @@ void validate_program(GLuint shader, std::string_view filename)
 	}
 }
 
+void validate_shader(GLuint shader, std::string_view filename)
+{
+	GLint compiled = 0;
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+	if (compiled == GL_FALSE)
+	{
+		std::array<char, 1024> compiler_log;
+		glGetShaderInfoLog(shader, static_cast<GLsizei>(compiler_log.size()), nullptr, compiler_log.data());
+		glDeleteShader(shader);
+
+		std::ostringstream message;
+		message << "shader " << filename << " contains error(s):\n\n" << compiler_log.data() << '\n';
+		std::clog << message.str();
+	}
+}
+
 std::tuple<GLuint, GLuint, GLuint> create_program(std::string_view vert_filepath, std::string_view frag_filepath)
 {
 	auto const vert_source = read_text_file(vert_filepath);
@@ -160,18 +176,39 @@ std::tuple<GLuint, GLuint, GLuint> create_program_nv(std::string_view mesh_filep
 
 	auto const m_ptr = mesh_source.data();
 	auto const f_ptr = frag_source.data();
-	GLuint pipeline = 0;
-	auto mesh = glCreateShaderProgramv(GL_MESH_SHADER_NV, 1, &m_ptr);
-	auto frag = glCreateShaderProgramv(GL_FRAGMENT_SHADER, 1, &f_ptr);
+	GLuint program = 0;
+	auto mesh = glCreateShader(GL_MESH_SHADER_NV);
+	auto frag = glCreateShader(GL_FRAGMENT_SHADER);
 
-	validate_program(mesh, mesh_filepath);
-	validate_program(frag, frag_filepath);
+	glShaderSource(mesh, 1, &m_ptr, NULL);
+	glShaderSource(frag, 1, &f_ptr, NULL);
+	glCompileShader(mesh);
+	glCompileShader(frag);
 
-	glCreateProgramPipelines(1, &pipeline);
-	glUseProgramStages(pipeline, GL_MESH_SHADER_BIT_NV, mesh);
-	glUseProgramStages(pipeline, GL_FRAGMENT_SHADER_BIT, frag);
+	validate_shader(mesh, mesh_filepath);
+	validate_shader(frag, frag_filepath);
 
-	return std::make_tuple(pipeline, mesh, frag);
+	program = glCreateProgram();
+	glAttachShader(program, mesh);
+	glAttachShader(program, frag);
+
+	glLinkProgram(program);
+
+	GLint compiled = 0;
+	glGetProgramiv(program, GL_LINK_STATUS, &compiled);
+	if (compiled == GL_FALSE)
+	{
+		std::array<char, 1024> compiler_log;
+		glGetProgramInfoLog(program, static_cast<GLsizei>(compiler_log.size()), nullptr, compiler_log.data());
+		glDeleteProgram(program);
+
+		std::ostringstream message;
+		message << "program contains error(s):\n\n" << compiler_log.data() << '\n';
+		std::clog << message.str();
+	}
+
+
+	return std::make_tuple(program, mesh, frag);
 }
 
 GLuint create_shader(GLuint vert, GLuint frag)
@@ -836,20 +873,20 @@ int main(int argc, char* argv[])
 		glBindTextureUnit(3, texture_gbuffer_depth);
 		glBindTextureUnit(4, texture_skybox);
 
-		glBindProgramPipeline(pr);
+		glUseProgram(pr);
 		glBindVertexArray(vao_empty);
 
-		set_uniform(frag_shader, uniform_cam_pos, camera_position);
-		set_uniform(mesh_shader, uniform_cam_dir, glm::inverse(glm::mat3(camera_view)));
-		set_uniform(mesh_shader, uniform_fov, fov);
-		set_uniform(mesh_shader, uniform_aspect, float(viewport_width) / float(viewport_height));
-		set_uniform(mesh_shader, uniform_uvs_diff, glm::vec2(
+		set_uniform(pr, 5, camera_position);
+		set_uniform(pr, uniform_cam_dir, glm::inverse(glm::mat3(camera_view)));
+		set_uniform(pr, uniform_fov, fov);
+		set_uniform(pr, uniform_aspect, float(viewport_width) / float(viewport_height));
+		set_uniform(pr, uniform_uvs_diff, glm::vec2(
 			float(viewport_width) / float(screen_width),
 			float(viewport_height) / float(screen_height)
 		));
 
 		//glDrawArrays(GL_TRIANGLES, 0, 6);
-		//glDrawMeshTasksNV(0, 1);
+		glDrawMeshTasksNV(0, 1);
 
 		/* motion blur */
 
