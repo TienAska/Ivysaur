@@ -176,39 +176,49 @@ std::tuple<GLuint, GLuint, GLuint> create_program_nv(std::string_view mesh_filep
 
 	auto const m_ptr = mesh_source.data();
 	auto const f_ptr = frag_source.data();
-	GLuint program = 0;
-	auto mesh = glCreateShader(GL_MESH_SHADER_NV);
-	auto frag = glCreateShader(GL_FRAGMENT_SHADER);
+	//GLuint program = 0;
+	//auto mesh = glCreateShader(GL_MESH_SHADER_NV);
+	//auto frag = glCreateShader(GL_FRAGMENT_SHADER);
 
-	glShaderSource(mesh, 1, &m_ptr, NULL);
-	glShaderSource(frag, 1, &f_ptr, NULL);
-	glCompileShader(mesh);
-	glCompileShader(frag);
+	//glShaderSource(mesh, 1, &m_ptr, NULL);
+	//glShaderSource(frag, 1, &f_ptr, NULL);
+	//glCompileShader(mesh);
+	//glCompileShader(frag);
 
-	validate_shader(mesh, mesh_filepath);
-	validate_shader(frag, frag_filepath);
+	//validate_shader(mesh, mesh_filepath);
+	//validate_shader(frag, frag_filepath);
 
-	program = glCreateProgram();
-	glAttachShader(program, mesh);
-	glAttachShader(program, frag);
+	//program = glCreateProgram();
+	//glAttachShader(program, mesh);
+	//glAttachShader(program, frag);
 
-	glLinkProgram(program);
+	//glLinkProgram(program);
 
-	GLint compiled = 0;
-	glGetProgramiv(program, GL_LINK_STATUS, &compiled);
-	if (compiled == GL_FALSE)
-	{
-		std::array<char, 1024> compiler_log;
-		glGetProgramInfoLog(program, static_cast<GLsizei>(compiler_log.size()), nullptr, compiler_log.data());
-		glDeleteProgram(program);
+	//GLint compiled = 0;
+	//glGetProgramiv(program, GL_LINK_STATUS, &compiled);
+	//if (compiled == GL_FALSE)
+	//{
+	//	std::array<char, 1024> compiler_log;
+	//	glGetProgramInfoLog(program, static_cast<GLsizei>(compiler_log.size()), nullptr, compiler_log.data());
+	//	glDeleteProgram(program);
 
-		std::ostringstream message;
-		message << "program contains error(s):\n\n" << compiler_log.data() << '\n';
-		std::clog << message.str();
-	}
+	//	std::ostringstream message;
+	//	message << "program contains error(s):\n\n" << compiler_log.data() << '\n';
+	//	std::clog << message.str();
+	//}
 
+	GLuint pipeline = 0;
+	auto mesh = glCreateShaderProgramv(GL_MESH_SHADER_NV, 1, &m_ptr);
+	auto frag = glCreateShaderProgramv(GL_FRAGMENT_SHADER, 1, &f_ptr);
 
-	return std::make_tuple(program, mesh, frag);
+	validate_program(mesh, mesh_filepath);
+	validate_program(frag, frag_filepath);
+
+	glCreateProgramPipelines(1, &pipeline);
+	glUseProgramStages(pipeline, GL_MESH_SHADER_BIT_NV, mesh);
+	glUseProgramStages(pipeline, GL_FRAGMENT_SHADER_BIT, frag);
+
+	return std::make_tuple(pipeline, mesh, frag);
 }
 
 GLuint create_shader(GLuint vert, GLuint frag)

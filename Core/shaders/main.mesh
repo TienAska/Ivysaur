@@ -2,17 +2,23 @@
 
 #extension GL_NV_mesh_shader : require
 
-layout(triangles, max_vertices=6, max_primitives=2) out;
- 
-out gl_PerVertex
-{
-	vec4 gl_Position; 
-} MeshPerVertexNV[];
+layout(local_size_x=1) in;
+layout(triangles, max_vertices=4, max_primitives=2) out;
 
 layout(location = 0) uniform mat3 u_camera_direction;
 layout(location = 1) uniform float u_fov;
 layout(location = 2) uniform float u_ratio;
 layout(location = 3) uniform vec2 u_uv_diff;
+
+
+out gl_MeshPerVertexNV {
+    vec4 gl_Position;
+} gl_MeshVerticesNV[];
+
+out uint gl_PrimitiveCountNV;
+out uint gl_PrimitiveIndicesNV[];
+
+out gl_PerVertex{ vec4 gl_Position; } g;
 
 out in_block
 {
@@ -42,10 +48,10 @@ void main()
 
 	};
 
-	MeshPerVertexNV[0].gl_Position = vec4(v[0], 0.0, 1.0);
-	MeshPerVertexNV[1].gl_Position = vec4(v[1], 0.0, 1.0);
-	MeshPerVertexNV[2].gl_Position = vec4(v[2], 0.0, 1.0);
-	MeshPerVertexNV[3].gl_Position = vec4(v[3], 0.0, 1.0);
+	gl_MeshVerticesNV[0].gl_Position = vec4(v[0], 0.0, 1.0);
+	gl_MeshVerticesNV[1].gl_Position = vec4(v[1], 0.0, 1.0);
+	gl_MeshVerticesNV[2].gl_Position = vec4(v[2], 0.0, 1.0);
+	gl_MeshVerticesNV[3].gl_Position = vec4(v[3], 0.0, 1.0);
 
 	o[0].texcoord = t[0];
 	o[1].texcoord = t[1];

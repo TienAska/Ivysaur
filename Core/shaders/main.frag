@@ -1,13 +1,13 @@
 #version 450
 
-layout (location = 4) out vec4 col;
+layout (location = 0) out vec4 col;
 layout (binding = 0) uniform sampler2D tex_position;
 layout (binding = 1) uniform sampler2D tex_normal;
 layout (binding = 2) uniform sampler2D tex_albedo;
 layout (binding = 3) uniform sampler2D tex_depth;
 layout (binding = 4) uniform samplerCube texcube_skybox;
 
-layout (location = 5) uniform vec3 u_camera_position;
+layout (location = 0) uniform vec3 u_camera_position;
 
 in in_block
 {
