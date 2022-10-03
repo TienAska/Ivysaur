@@ -18,15 +18,18 @@
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Khuon\Khuon\gl3w.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="cyCodeBase\cyCore.h">
+    <ClInclude Include="..\..\Khuon\Khuon\camera.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="cyCodeBase\cyTriMesh.h">
+    <ClInclude Include="..\..\Khuon\Khuon\logger.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="cyCodeBase\cyVector.h">
+    <ClInclude Include="..\..\Khuon\Khuon\shader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -1,891 +1,418 @@
-#define STB_IMAGE_IMPLEMENTATION
-
-#include <string_view>
-#include <string>
-#include <iostream>
-#include <cstdint>
-#include <fstream>
-#include <sstream>
-#include <tuple>
-#include <array>
-#include <random>
-#include <vector>
-#include <chrono>
-#include <numeric>
-#include <filesystem>
-
-#include <gl/gl3w.h>
+#include <GL/gl3w.h>
 #include <GLFW/glfw3.h>
-#include <stb_image.h>
-#include <glm/glm.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include <glm/gtx/transform.hpp>
+#define TINYGLTF_IMPLEMENTATION
+#define TINYGLTF_NO_STB_IMAGE_WRITE
+#define TINYGLTF_USE_CPP14 
+#define STB_IMAGE_IMPLEMENTATION
+#include <tiny_gltf.h>
+#include <cyCodeBase/cyHairFile.h>
 
-#include "cyCodeBase/cyTriMesh.h"
+#include <imgui/imgui.h>
+#include <imgui/imgui_impl_glfw.h>
+#include <imgui/imgui_impl_opengl3.h>
 
-inline std::string read_text_file(std::string_view filepath)
+#include "logger.h"
+#include "camera.h"
+#include "shader.h"
+
+struct Light
 {
-	if (!std::filesystem::exists(filepath.data()))
-	{
-		std::ostringstream message;
-		message << "file " << filepath.data() << " does not exist.";
-		throw std::filesystem::filesystem_error(message.str(), std::make_error_code(std::errc::no_such_file_or_directory));
-	}
-	std::ifstream file(filepath.data());
-	return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-}
-
-struct vertex_t
-{
-	glm::vec3 position, color, normal;
-	glm::vec2 texcoord;
-	vertex_t(glm::vec3 const& position, glm::vec3 const& color, glm::vec3 const& normal, glm::vec2 const& texcoord)
-		: position(position), color(color), normal(normal), texcoord(texcoord) {}
+	glm::vec3 direction;
+	float padding0 = 0.0f;
+	glm::vec3 color;
+	float padding1 = 0.0f;
 };
 
-struct attrib_format_t
+struct MatrixUBO
 {
-	GLuint attrib_index;
-	GLint size;
-	GLenum type;
-	GLuint relative_offset;
+	glm::mat4 VP;
+	glm::mat4 M;
+	glm::vec3 CameraPos;
+	float padding = 0.0f;
 };
 
-template<typename T>
-constexpr std::pair<GLint, GLenum> type_to_size_enum()
+struct Vertex_Data
 {
-	if constexpr (std::is_same_v<T, float>)
-		return std::make_pair(1, GL_FLOAT);
-	if constexpr (std::is_same_v<T, int>)
-		return std::make_pair(1, GL_INT);
-	if constexpr (std::is_same_v<T, unsigned int>)
-		return std::make_pair(1, GL_UNSIGNED_INT);
-	if constexpr (std::is_same_v<T, glm::vec2>)
-		return std::make_pair(2, GL_FLOAT);
-	if constexpr (std::is_same_v<T, glm::vec3>)
-		return std::make_pair(3, GL_FLOAT);
-	if constexpr (std::is_same_v<T, glm::vec4>)
-		return std::make_pair(4, GL_FLOAT);
-	throw std::runtime_error("unsupported type");
-}
+	float position[3];
+	float normal[3];
+	float texcoord[2];
+};
 
-template<typename T>
-inline attrib_format_t create_attrib_format(GLuint attrib_index, GLuint relative_offset)
+struct Meshlet
 {
-	auto const [comp_count, type] = type_to_size_enum<T>();
-	return attrib_format_t{ attrib_index, comp_count, type, relative_offset };
-}
+	unsigned int vertex_offset = 0;
+	unsigned int vertex_count  = 0;
+	unsigned int index_offset  = 0;
+	unsigned int index_count   = 0;
+};
 
-template<typename T>
-inline GLuint create_buffer(std::vector<T> const& buff, GLenum flags = GL_DYNAMIC_STORAGE_BIT)
+std::vector<Meshlet> BuildMeshlets(const cyHairFile& hairfile)
 {
-	GLuint name = 0;
-	glCreateBuffers(1, &name);
-	glNamedBufferStorage(name, sizeof(typename std::vector<T>::value_type) * buff.size(), buff.data(), flags);
-	return name;
-}
-
-template<typename T>
-std::tuple<GLuint, GLuint, GLuint> create_geometry(std::vector<T> const& vertices, std::vector<uint8_t> const& indices, std::vector<attrib_format_t> const& attrib_formats)
-{
-	GLuint vao = 0;
-	auto vbo = create_buffer(vertices);
-	auto ibo = create_buffer(indices);
-
-	glCreateVertexArrays(1, &vao);
-	glVertexArrayVertexBuffer(vao, 0, vbo, 0, sizeof(T));
-	glVertexArrayElementBuffer(vao, ibo);
-
-	for (auto const& format : attrib_formats)
+	std::vector<Meshlet> meshlets;
+	
+	int pointIndex = 0;
+	int hairCount = hairfile.GetHeader().hair_count;
+	const unsigned short* segments = hairfile.GetSegmentsArray();
+	for(size_t i = 0; i < hairCount; ++i)
 	{
-		glEnableVertexArrayAttrib(vao, format.attrib_index);
-		glVertexArrayAttribFormat(vao, format.attrib_index, format.size, format.type, GL_FALSE, format.relative_offset);
-		glVertexArrayAttribBinding(vao, format.attrib_index, 0);
+		Meshlet meshlet;
+		meshlet.vertex_offset = pointIndex;
+		meshlet.vertex_count = segments[i] + 1;
+		//meshlet.index_offset = i;
+		//meshlet.index_count++;
+		meshlets.push_back(meshlet);
+		pointIndex += meshlet.vertex_count;
 	}
 
-	return std::make_tuple(vao, vbo, ibo);
+	return meshlets;
 }
 
-void validate_program(GLuint shader, std::string_view filename)
+void LoadHairModel(const char* filename, cyHairFile& hairfile, float*& dirs)
 {
-	GLint compiled = 0;
-	glProgramParameteri(shader, GL_PROGRAM_SEPARABLE, GL_TRUE);
-	glGetProgramiv(shader, GL_LINK_STATUS, &compiled);
-	if (compiled == GL_FALSE)
-	{
-		std::array<char, 1024> compiler_log;
-		glGetProgramInfoLog(shader, static_cast<GLsizei>(compiler_log.size()), nullptr, compiler_log.data());
-		glDeleteShader(shader);
-
-		std::ostringstream message;
-		message << "shader " << filename << " contains error(s):\n\n" << compiler_log.data() << '\n';
-		std::clog << message.str();
+	// Load the hair model
+	int result = hairfile.LoadFromFile(filename);
+	// Check for errors
+	switch (result) {
+	case CY_HAIR_FILE_ERROR_CANT_OPEN_FILE:
+		LOG_RUNTIME_WARN("Cannot open hair file!");
+		return;
+	case CY_HAIR_FILE_ERROR_CANT_READ_HEADER:
+		LOG_RUNTIME_WARN("Cannot read hair file header!");
+		return;
+	case CY_HAIR_FILE_ERROR_WRONG_SIGNATURE:
+		LOG_RUNTIME_WARN("File has wrong signature!");
+		return;
+	case CY_HAIR_FILE_ERROR_READING_SEGMENTS:
+		LOG_RUNTIME_WARN("Cannot read hair segments!");
+		return;
+	case CY_HAIR_FILE_ERROR_READING_POINTS:
+		LOG_RUNTIME_WARN("Cannot read hair points!");
+		return;
+	case CY_HAIR_FILE_ERROR_READING_COLORS:
+		LOG_RUNTIME_WARN("Cannot read hair colors!");
+		return;
+	case CY_HAIR_FILE_ERROR_READING_THICKNESS:
+		LOG_RUNTIME_WARN("Cannot read hair thickness!");
+		return;
+	case CY_HAIR_FILE_ERROR_READING_TRANSPARENCY:
+		LOG_RUNTIME_WARN("Cannot read hair transparency!");
+		return;
+	default:
+		LOG_RUNTIME_INFO("Hair file \"{}\" loaded.", filename);
 	}
-}
-
-std::tuple<GLuint, GLuint, GLuint> create_program(std::string_view vert_filepath, std::string_view frag_filepath)
-{
-	auto const vert_source = read_text_file(vert_filepath);
-	auto const frag_source = read_text_file(frag_filepath);
-
-	auto const v_ptr = vert_source.data();
-	auto const f_ptr = frag_source.data();
-	GLuint pipeline = 0;
-	auto vert = glCreateShaderProgramv(GL_VERTEX_SHADER, 1, &v_ptr);
-	auto frag = glCreateShaderProgramv(GL_FRAGMENT_SHADER, 1, &f_ptr);
-
-	validate_program(vert, vert_filepath);
-	validate_program(frag, frag_filepath);
-
-	glCreateProgramPipelines(1, &pipeline);
-	glUseProgramStages(pipeline, GL_VERTEX_SHADER_BIT, vert);
-	glUseProgramStages(pipeline, GL_FRAGMENT_SHADER_BIT, frag);
-
-	return std::make_tuple(pipeline, vert, frag);
-}
-
-GLuint create_shader(GLuint vert, GLuint frag)
-{
-	GLuint pipeline = 0;
-	glCreateProgramPipelines(1, &pipeline);
-	glUseProgramStages(pipeline, GL_VERTEX_SHADER_BIT, vert);
-	glUseProgramStages(pipeline, GL_FRAGMENT_SHADER_BIT, frag);
-	return pipeline;
-}
-
-GLuint create_texture_2d(GLenum internal_format, GLenum format, GLsizei width, GLsizei height, void* data = nullptr, GLenum filter = GL_LINEAR, GLenum repeat = GL_REPEAT)
-{
-	GLuint tex = 0;
-	glCreateTextures(GL_TEXTURE_2D, 1, &tex);
-	glTextureStorage2D(tex, 1, internal_format, width, height);
-
-	glTextureParameteri(tex, GL_TEXTURE_MIN_FILTER, filter);
-	glTextureParameteri(tex, GL_TEXTURE_MAG_FILTER, filter);
-	glTextureParameteri(tex, GL_TEXTURE_WRAP_S, repeat);
-	glTextureParameteri(tex, GL_TEXTURE_WRAP_T, repeat);
-	glTextureParameteri(tex, GL_TEXTURE_WRAP_R, repeat);
-
-	if (data)
-	{
-		glTextureSubImage2D(tex, 0, 0, 0, width, height, format, GL_UNSIGNED_BYTE, data);
-	}
-
-	return tex;
-}
-
-template<typename T = nullptr_t>
-GLuint create_texture_cube(GLenum internal_format, GLenum format, GLsizei width, GLsizei height, std::array<T*, 6> const& data)
-{
-	GLuint tex = 0;
-	glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &tex);
-	glTextureStorage2D(tex, 1, internal_format, width, height);
-
-	for (GLint i = 0; i < 6; ++i)
-	{
-		if (data[i])
-		{
-			glTextureSubImage3D(tex, 0, 0, 0, i, width, height, 1, format, GL_UNSIGNED_BYTE, data[i]);
-		}
-	}
-
-	return tex;
-}
-
-using stb_comp_t = decltype(STBI_default);
-GLuint create_texture_2d_from_file(std::string_view filepath, stb_comp_t comp = STBI_rgb_alpha)
-{
-	int x, y, c;
-	if (!std::filesystem::exists(filepath.data()))
-	{
-		std::ostringstream message;
-		message << "file " << filepath.data() << " does not exist.";
-		throw std::runtime_error(message.str());
-	}
-	const auto data = stbi_load(filepath.data(), &x, &y, &c, comp);
-
-	auto const [in, ex] = [comp]() {
-		switch (comp)
-		{
-		case STBI_rgb_alpha:	return std::make_pair(GL_RGBA8, GL_RGBA);
-		case STBI_rgb:			return std::make_pair(GL_RGB8, GL_RGB);
-		case STBI_grey:			return std::make_pair(GL_R8, GL_RED);
-		case STBI_grey_alpha:	return std::make_pair(GL_RG8, GL_RG);
-		default: throw std::runtime_error("invalid format");
-		}
-	}();
-
-	const auto name = create_texture_2d(in, ex, x, y, data);
-	stbi_image_free(data);
-	return name;
-}
-
-GLuint create_texture_cube_from_file(std::array<std::string_view, 6> const& filepath, stb_comp_t comp = STBI_rgb_alpha)
-{
-	int x, y, c;
-	std::array<stbi_uc*, 6> faces;
-
-	auto const [in, ex] = [comp]() {
-		switch (comp)
-		{
-		case STBI_rgb_alpha:	return std::make_pair(GL_RGBA8, GL_RGBA);
-		case STBI_rgb:			return std::make_pair(GL_RGB8, GL_RGB);
-		case STBI_grey:			return std::make_pair(GL_R8, GL_RED);
-		case STBI_grey_alpha:	return std::make_pair(GL_RG8, GL_RG);
-		default: throw std::runtime_error("invalid format");
-		}
-	}();
-
-	for (auto i = 0; i < 6; i++)
-	{
-		faces[i] = stbi_load(filepath[i].data(), &x, &y, &c, comp);
-	}
-
-	const auto name = create_texture_cube(in, ex, x, y, faces);
-
-	for (auto face : faces)
-	{
-		stbi_image_free(face);
-	}
-	return name;
-}
-
-GLuint create_framebuffer(std::vector<GLuint> const& cols, GLuint depth = GL_NONE)
-{
-	GLuint fbo = 0;
-	glCreateFramebuffers(1, &fbo);
-
-	for (auto i = 0; i < cols.size(); i++)
-	{
-		glNamedFramebufferTexture(fbo, GL_COLOR_ATTACHMENT0 + i, cols[i], 0);
-	}
-
-	std::array<GLenum, 32> draw_buffs;
-	for (GLenum i = 0; i < cols.size(); i++)
-	{
-		draw_buffs[i] = GL_COLOR_ATTACHMENT0 + i;
-	}
-
-	glNamedFramebufferDrawBuffers(fbo, static_cast<GLsizei>(cols.size()), draw_buffs.data());
-
-	if (depth != GL_NONE)
-	{
-		glNamedFramebufferTexture(fbo, GL_DEPTH_ATTACHMENT, depth, 0);
-	}
-
-	if (glCheckNamedFramebufferStatus(fbo, GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-	{
-		throw std::runtime_error("incomplete framebuffer");
-	}
-	return fbo;
-}
-
-template <typename T>
-inline void set_uniform(GLuint shader, GLint location, T const& value)
-{
-	if		constexpr (std::is_same_v<T, GLint>)		glProgramUniform1i(shader, location, value);
-	else if constexpr (std::is_same_v<T, GLuint>)	glProgramUniform1ui(shader, location, value);
-	else if constexpr (std::is_same_v<T, bool>)		glProgramUniform1ui(shader, location, value);
-	else if constexpr (std::is_same_v<T, GLfloat>)	glProgramUniform1f(shader, location, value);
-	else if constexpr (std::is_same_v<T, GLdouble>)	glProgramUniform1d(shader, location, value);
-	else if constexpr (std::is_same_v<T, glm::vec2>) glProgramUniform2fv(shader, location, 1, glm::value_ptr(value));
-	else if constexpr (std::is_same_v<T, glm::vec3>) glProgramUniform3fv(shader, location, 1, glm::value_ptr(value));
-	else if constexpr (std::is_same_v<T, glm::vec4>) glProgramUniform4fv(shader, location, 1, glm::value_ptr(value));
-	else if constexpr (std::is_same_v<T, glm::ivec2>)glProgramUniform2iv(shader, location, 1, glm::value_ptr(value));
-	else if constexpr (std::is_same_v<T, glm::ivec3>)glProgramUniform3iv(shader, location, 1, glm::value_ptr(value));
-	else if constexpr (std::is_same_v<T, glm::ivec4>)glProgramUniform4iv(shader, location, 1, glm::value_ptr(value));
-	else if constexpr (std::is_same_v<T, glm::uvec2>)glProgramUniform2uiv(shader, location, 1, glm::value_ptr(value));
-	else if constexpr (std::is_same_v<T, glm::uvec3>)glProgramUniform3uiv(shader, location, 1, glm::value_ptr(value));
-	else if constexpr (std::is_same_v<T, glm::uvec4>)glProgramUniform4uiv(shader, location, 1, glm::value_ptr(value));
-	else if constexpr (std::is_same_v<T, glm::quat>) glProgramUniform4fv(shader, location, 1, glm::value_ptr(value));
-	else if constexpr (std::is_same_v<T, glm::mat3>) glProgramUniformMatrix3fv(shader, location, 1, GL_FALSE, glm::value_ptr(value));
-	else if constexpr (std::is_same_v<T, glm::mat4>) glProgramUniformMatrix4fv(shader, location, 1, GL_FALSE, glm::value_ptr(value));
-	else throw std::runtime_error("unsupported type");
-}
-
-inline void delete_shader(GLuint pr, GLuint vs, GLuint fs)
-{
-	glDeleteProgramPipelines(1, &pr);
-	glDeleteProgram(vs);
-	glDeleteProgram(fs);
-}
-
-using glDeleterFunc = void (APIENTRYP)(GLuint item);
-using glDeleterFuncv = void (APIENTRYP)(GLsizei n, const GLuint* items);
-inline void delete_items(glDeleterFuncv deleter, std::initializer_list<GLuint> items) { deleter(static_cast<GLsizei>(items.size()), items.begin()); }
-inline void delete_items(glDeleterFunc deleter, std::initializer_list<GLuint> items)
-{
-	for (size_t i = 0; i < items.size(); i++)
-	{
-		deleter(*(items.begin() + i));
+	int hairCount = hairfile.GetHeader().hair_count;
+	int pointCount = hairfile.GetHeader().point_count;
+	LOG_RUNTIME_INFO("Number of hair strands = {}", hairCount);
+	LOG_RUNTIME_INFO("Number of hair points = {}", pointCount);
+	// Compute directions
+	if (hairfile.FillDirectionArray(dirs) == 0) {
+		LOG_RUNTIME_WARN("Cannot compute hair directions!");
 	}
 }
 
-inline glm::vec3 orbit_axis(float angle, glm::vec3 const& axis, glm::vec3 const& spread) { return glm::angleAxis(angle, axis) * spread; }
-inline float lerp(float a, float b, float f) { return a + f * (b - a); }
-
-/*
-std::vector<glm::vec3> calc_tangents(std::vector<vertex_t> const& vertices, std::vector<uint8_t> const& indices)
-{
-	std::vector<glm::vec3> res;
-	res.reserve(indices.size());
-	for (auto q = 0; q < 6; ++q)
-	{
-		auto
-			v = q * 4,
-			i = q * 6;
-		glm::vec3
-			edge0 = vertices[indices[i + 1]].position - vertices[indices[i + 0]].position, edge1 = vertices[indices[i + 2]].position - vertices[indices[0]].position,
-			edge2 = vertices[indices[i + 4]].position - vertices[indices[i + 3]].position, edge3 = vertices[indices[i + 5]].position - vertices[indices[3]].position;
-
-		glm::vec2
-			delta_uv0 = vertices[indices[i + 1]].texcoord - vertices[indices[i + 0]].texcoord, delta_uv1 = vertices[indices[i + 2]].texcoord - vertices[indices[i + 0]].texcoord,
-			delta_uv2 = vertices[indices[i + 4]].texcoord - vertices[indices[i + 3]].texcoord, delta_uv3 = vertices[indices[i + 5]].texcoord - vertices[indices[i + 3]].texcoord;
-
-		float const
-			f0 = 1.0f / (delta_uv0.x * delta_uv1.y - delta_uv1.x * delta_uv0.y),
-			f1 = 1.0f / (delta_uv2.x * delta_uv3.y - delta_uv3.x * delta_uv2.y);
-
-		auto const
-			t0 = glm::normalize(glm::vec3(
-				f0 * (delta_uv1.y * edge0.x - delta_uv0.y * edge1.x),
-				f0 * (delta_uv1.y * edge0.y - delta_uv0.y * edge1.y),
-				f0 * (delta_uv1.y * edge0.z - delta_uv0.y * edge1.z)
-			)),
-			t1 = glm::normalize(glm::vec3(
-				f1 * (delta_uv3.y * edge2.x - delta_uv2.y * edge3.x),
-				f1 * (delta_uv3.y * edge2.y - delta_uv2.y * edge3.y),
-				f1 * (delta_uv3.y * edge2.z - delta_uv2.y * edge3.z)
-			));
-
-		res.push_back(t0); res.push_back(t0); res.push_back(t0);
-		res.push_back(t1); res.push_back(t1); res.push_back(t1);
-	}
-	return res;
-}
-*/
-
-/*
-std::vector<glm::vec3> generate_ssao_kernel()
-{
-	std::vector<glm::vec3>  res;
-	res.reserve(64);
-
-	std::uniform_real_distribution<float> random(0.0f, 1.0f);
-	std::default_random_engine generator;
-
-	for (int i = 0; i < 64; ++i)
-	{
-		auto sample = glm::normalize(glm::vec3(
-			random(generator) * 2.0f - 1.0f,
-			random(generator) * 2.0f - 1.0f,
-			random(generator)
-		))* random(generator)
-		  * lerp(0.1f, 1.0f, glm::pow(float(i) / 64.0f, 2));
-		res.push_back(sample);
-	}
-	return res;
-}
-
-std::vector<glm::vec3> generate_ssao_noise()
-{
-	std::vector<glm::vec3>  res;
-	res.reserve(16);
-
-	std::uniform_real_distribution<float> random(0.0f, 1.0f);
-	std::default_random_engine generator;
-
-	for (int i = 0; i < 16; ++i)
-		res.push_back(glm::vec3(
-			random(generator) * 2.0f - 1.0f,
-			random(generator) * 2.0f - 1.0f,
-			0.0f
-		));
-
-	return res;
-}
-*/
-
-#if _DEBUG
-void APIENTRY gl_debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam)
+void APIENTRY gldebugmessage_callback(GLenum source, GLenum type, unsigned int id, GLenum severity, GLsizei length, const char* message, const void* userParam)
 {
 	// ignore non-significant error/warning codes
 	if (id == 131169 || id == 131185 || id == 131218 || id == 131204) return;
 
-	std::cout << "---------------" << std::endl;
-	std::cout << "Debug message (" << id << "): " << message << std::endl;
-
+	std::string src;
 	switch (source)
 	{
-	case GL_DEBUG_SOURCE_API:             std::cout << "Source: API"; break;
-	case GL_DEBUG_SOURCE_WINDOW_SYSTEM:   std::cout << "Source: Window System"; break;
-	case GL_DEBUG_SOURCE_SHADER_COMPILER: std::cout << "Source: Shader Compiler"; break;
-	case GL_DEBUG_SOURCE_THIRD_PARTY:     std::cout << "Source: Third Party"; break;
-	case GL_DEBUG_SOURCE_APPLICATION:     std::cout << "Source: Application"; break;
-	case GL_DEBUG_SOURCE_OTHER:           std::cout << "Source: Other"; break;
-	} std::cout << std::endl;
+	case GL_DEBUG_SOURCE_API:             src = "API"; break;
+	case GL_DEBUG_SOURCE_WINDOW_SYSTEM:   src = "Window System"; break;
+	case GL_DEBUG_SOURCE_SHADER_COMPILER: src = "Shader Compiler"; break;
+	case GL_DEBUG_SOURCE_THIRD_PARTY:     src = "Third Party"; break;
+	case GL_DEBUG_SOURCE_APPLICATION:     src = "Application"; break;
+	case GL_DEBUG_SOURCE_OTHER:           src = "Other"; break;
+	}
 
+	std::string ty;
 	switch (type)
 	{
-	case GL_DEBUG_TYPE_ERROR:               std::cout << "Type: Error"; break;
-	case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: std::cout << "Type: Deprecated Behaviour"; break;
-	case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:  std::cout << "Type: Undefined Behaviour"; break;
-	case GL_DEBUG_TYPE_PORTABILITY:         std::cout << "Type: Portability"; break;
-	case GL_DEBUG_TYPE_PERFORMANCE:         std::cout << "Type: Performance"; break;
-	case GL_DEBUG_TYPE_MARKER:              std::cout << "Type: Marker"; break;
-	case GL_DEBUG_TYPE_PUSH_GROUP:          std::cout << "Type: Push Group"; break;
-	case GL_DEBUG_TYPE_POP_GROUP:           std::cout << "Type: Pop Group"; break;
-	case GL_DEBUG_TYPE_OTHER:               std::cout << "Type: Other"; break;
-	} std::cout << std::endl;
+	case GL_DEBUG_TYPE_ERROR:               ty = "Error"; break;
+	case GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR: ty = "Deprecated Behaviour"; break;
+	case GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR:  ty = "Undefined Behaviour"; break;
+	case GL_DEBUG_TYPE_PORTABILITY:         ty = "Portability"; break;
+	case GL_DEBUG_TYPE_PERFORMANCE:         ty = "Performance"; break;
+	case GL_DEBUG_TYPE_MARKER:              ty = "Marker"; break;
+	case GL_DEBUG_TYPE_PUSH_GROUP:          ty = "Push Group"; break;
+	case GL_DEBUG_TYPE_POP_GROUP:           ty = "Pop Group"; break;
+	case GL_DEBUG_TYPE_OTHER:               ty = "Other"; break;
+	}
 
+	std::string svr;
 	switch (severity)
 	{
-	case GL_DEBUG_SEVERITY_HIGH:         std::cout << "Severity: high"; break;
-	case GL_DEBUG_SEVERITY_MEDIUM:       std::cout << "Severity: medium"; break;
-	case GL_DEBUG_SEVERITY_LOW:          std::cout << "Severity: low"; break;
-	case GL_DEBUG_SEVERITY_NOTIFICATION: std::cout << "Severity: notification"; break;
-	} std::cout << std::endl;
-	std::cout << std::endl;
-}
-#endif
+	case GL_DEBUG_SEVERITY_HIGH:         svr = "Severity: high"; break;
+	case GL_DEBUG_SEVERITY_MEDIUM:       svr = "Severity: medium"; break;
+	case GL_DEBUG_SEVERITY_LOW:          svr = "Severity: low"; break;
+	case GL_DEBUG_SEVERITY_NOTIFICATION: svr = "Severity: notification"; break;
+	}
 
-template<typename ... Args>
-std::string string_format(const std::string& format, Args ... args)
-{
-	const size_t size = snprintf(nullptr, 0, format.c_str(), args ...) + 1; // Extra space for '\0'
-	std::unique_ptr<char[]> buf(new char[size]);
-	snprintf(buf.get(), size, format.c_str(), args ...);
-	return std::string(buf.get(), buf.get() + size - 1); // We don't want the '\0' inside
+	LOG_OPENGL_ERROR("Debug Message ({}):{}\nSource: {}\nType: {}\nSeverity: {}\n", id, message, src, ty, svr);
 }
 
-void measure_frames(GLFWwindow* const window, double& deltaTimeAverage, int& frameCounter, int framesToAverage)
+static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-	if (frameCounter == framesToAverage)
+	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+		glfwSetWindowShouldClose(window, GLFW_TRUE);
+	if (key == GLFW_KEY_W && (action == GLFW_PRESS || action == GLFW_REPEAT))
+		Camera::Instance().MoveForward(0.1f);
+	if (key == GLFW_KEY_S && (action == GLFW_PRESS || action == GLFW_REPEAT))
+		Camera::Instance().MoveForward(-0.1f);
+	if (key == GLFW_KEY_A && (action == GLFW_PRESS || action == GLFW_REPEAT))
+		Camera::Instance().MoveRight(-0.1f);
+	if (key == GLFW_KEY_D && (action == GLFW_PRESS || action == GLFW_REPEAT))
+		Camera::Instance().MoveRight(0.1f);
+	if (key == GLFW_KEY_E && (action == GLFW_PRESS || action == GLFW_REPEAT))
+		Camera::Instance().MoveUp(0.1f);
+	if (key == GLFW_KEY_Q && (action == GLFW_PRESS || action == GLFW_REPEAT))
+		Camera::Instance().MoveUp(-0.1f);
+}
+
+glm::quat rotateY(1.0f, 0.0f, 0.0f, 0.0f);
+bool cameraRotate = false;
+bool modelRotate = false;
+static void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
+{
+	static float lastX = 720, lastY = 480;
+
+	float xPos = static_cast<float>(xpos);
+	float yPos = static_cast<float>(ypos);
+	float deltaX = xPos - lastX;
+	float deltaY = lastY - yPos;
+	lastX = xPos;
+	lastY = yPos;
+
+	if (cameraRotate)
 	{
-		deltaTimeAverage /= framesToAverage;
+		Camera::Instance().Rotate(deltaY, deltaX);
+	}
 
-		auto window_title = string_format("frametime = %.3fms, fps = %.1f", 1000.0 * deltaTimeAverage, 1.0 / deltaTimeAverage);
-		glfwSetWindowTitle(window, window_title.c_str());
-
-		deltaTimeAverage = 0.0;
-		frameCounter = 0;
+	if (modelRotate)
+	{
+		rotateY = glm::rotate(rotateY, glm::radians(deltaX), glm::vec3(0.0f, 1.0f, 0.0f));
 	}
 }
 
-enum struct shape_t
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
-	cube = 0,
-	quad = 1
-};
-
-struct scene_object_t
-{
-	glm::mat4 model;
-	glm::mat4 mvp_inv_prev;
-	shape_t shape;
-	bool except;
-	scene_object_t(shape_t shape = shape_t::cube, bool except = false) : model(), mvp_inv_prev(), shape(shape), except(except)
-	{
-
-	}
-};
-
-template<typename T = std::chrono::milliseconds>
-int64_t now()
-{
-	return std::chrono::duration_cast<T>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+	if (button == GLFW_MOUSE_BUTTON_RIGHT)
+		cameraRotate = action != GLFW_RELEASE ? true : false;
+	if (button == GLFW_MOUSE_BUTTON_LEFT)
+		modelRotate = action != GLFW_RELEASE ? true : false;
 }
 
-static void error_callback(int error, const char* description)
+GLuint CreateCubeMap(std::filesystem::path path)
 {
-	fprintf(stderr, "Error: %s\n", description);
+	GLuint textureID;
+	glCreateTextures(GL_TEXTURE_CUBE_MAP, 1, &textureID);
+
+	static const char* const filenames[] = {
+		"px.png",
+		"nx.png",
+		"py.png",
+		"ny.png",
+		"pz.png",
+		"nz.png"
+	};
+
+	glTextureStorage2D(textureID, 1, GL_RGB8, 2048, 2048);
+	int width, height, nrChannels;
+	for (int i = 0; i < 6; ++i)
+	{
+		unsigned char* data = stbi_load((path / filenames[i]).string().c_str(), &width, &height, &nrChannels, 0);
+		if (data)
+			glTextureSubImage3D(textureID, 0, 0, 0, i, width, height, 1, GL_RGB, GL_UNSIGNED_BYTE, data);
+		else
+			LOG_RUNTIME_WARN("Cubemap tex failed to load at path: {}", path.string());
+		stbi_image_free(data);
+	}
+	glTextureParameteri(textureID, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTextureParameteri(textureID, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTextureParameteri(textureID, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTextureParameteri(textureID, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTextureParameteri(textureID, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+	return textureID;
 }
 
 int main(int argc, char* argv[])
 {
-	glfwSetErrorCallback(error_callback);
-	if (!glfwInit())
-		return 1;
-
-	constexpr auto window_width = 1280;
-	constexpr auto window_height = 800;
-	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, true);
-	const auto window = glfwCreateWindow(window_width, window_height, "ModernOpenGL\0", NULL, NULL);
-	glfwMakeContextCurrent(window);
-	//SDL_GL_SetSwapInterval(0);
-
-	auto const [screen_width, screen_height] = [=]()
+	Logger::Init();
+	
+	// Init GLFW3.
+	if (!glfwInit()) 
 	{
-		int display_w, display_h;
-		glfwGetFramebufferSize(window, &display_w, &display_h);
-		return std::pair<int, int>(display_w, display_h);
-	}();
+		LOG_RUNTIME_ERROR("failed to initialize GLFW.");
+		return -1;
+	}
 
-	if (gl3wInit())
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
+	glfwWindowHint(GLFW_SAMPLES, 8);
+
+	auto window = glfwCreateWindow(1440, 960, "Khuon", nullptr, nullptr);
+	if (!window) 
 	{
-		glfwDestroyWindow(window);
 		glfwTerminate();
-		throw std::runtime_error("failed to load gl");
+		return -1;
 	}
 
-	std::clog << glGetString(GL_VERSION) << '\n';
+	glfwSetKeyCallback(window, key_callback);
+	glfwSetCursorPosCallback(window, cursor_position_callback);
+	glfwSetMouseButtonCallback(window, mouse_button_callback);
 
-#if _DEBUG
-	if (glDebugMessageCallback)
+	glfwMakeContextCurrent(window);
+
+	// Setup Dear ImGui context
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+	// Setup Dear ImGui style
+	ImGui::StyleColorsDark();
+	//ImGui::StyleColorsLight();
+
+	// Setup Platform/Renderer backends
+	ImGui_ImplGlfw_InitForOpenGL(window, true);
+	ImGui_ImplOpenGL3_Init("#version 450");
+
+	// Init gl loader.
+	if (gl3wInit()) 
 	{
-		std::clog << "registered opengl debug callback\n";
+		LOG_RUNTIME_ERROR("failed to initialize OpenGL");
+		return -1;
+	}
+
+	LOG_RUNTIME_INFO("OpenGL {0}, GLSL {1}", reinterpret_cast<const char*>(glGetString(GL_VERSION)), reinterpret_cast<const char*>(glGetString(GL_SHADING_LANGUAGE_VERSION)));
+
+	GLint max_vertices, max_primitives;
+	glGetIntegerv(GL_MAX_MESH_OUTPUT_VERTICES_NV, &max_vertices);
+	glGetIntegerv(GL_MAX_MESH_OUTPUT_PRIMITIVES_NV, &max_primitives);
+	LOG_RUNTIME_INFO("Max mesh output vertices: {0}, primitives {1}", max_vertices, max_primitives);
+
+	// Setup debug logger.
+	int flags; glGetIntegerv(GL_CONTEXT_FLAGS, &flags);
+	if (flags & GL_CONTEXT_FLAG_DEBUG_BIT)
+	{
+		glEnable(GL_DEBUG_OUTPUT);
 		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-		glDebugMessageCallback(gl_debug_callback, nullptr);
-		GLuint unusedIds = 0;
-		glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, &unusedIds, true);
+		glDebugMessageCallback(gldebugmessage_callback, nullptr);
+		glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
+		//glDebugMessageControl(GL_DEBUG_SOURCE_API, GL_DEBUG_TYPE_ERROR, GL_DEBUG_SEVERITY_HIGH, 0, nullptr, GL_TRUE);
 	}
-	else
-	{
-		std::clog << "glDebugMessageCallback not available\n";
-	}
-#endif
 
-	glEnable(GL_CULL_FACE);
+	Shader::GenerateCaches();
+
+	cyHairFile hair = cyHairFile();
+	float* dirs = nullptr;
+	LoadHairModel("Assets/Models/wWavyThin.hair", hair, dirs);
+	std::vector<Meshlet> meshlets = BuildMeshlets(hair);
+
+	// Shader compilation.
+	GLuint skybox_program = Shader::CreateProgram("skybox.mesh", "skybox.frag");
+	GLuint hair_program = Shader::CreateProgram("hair.mesh", "hair.frag");
+
+
+	GLuint UBOs[2];	glCreateBuffers(2, UBOs);
+	glBindBuffersBase(GL_UNIFORM_BUFFER, 0, 2, UBOs);
+	glNamedBufferData(UBOs[0], sizeof(MatrixUBO), nullptr, GL_STATIC_DRAW);
+	glNamedBufferData(UBOs[1], sizeof(Light), nullptr, GL_STATIC_DRAW);
+
+
+	glProgramUniform4f(hair_program, 0, hair.GetHeader().d_color[0], hair.GetHeader().d_color[1], hair.GetHeader().d_color[2], hair.GetHeader().d_transparency);
+
+	GLuint SSBOs[2]; glCreateBuffers(2, SSBOs);
+	glBindBuffersBase(GL_SHADER_STORAGE_BUFFER, 0, 2, SSBOs);
+	// vertices
+	glNamedBufferStorage(SSBOs[0], sizeof(float) * 3 * hair.GetHeader().point_count, hair.GetPointsArray(), GL_DYNAMIC_STORAGE_BIT);
+	// meshlets
+	glNamedBufferStorage(SSBOs[1], sizeof(Meshlet) * meshlets.size(), meshlets.data(), GL_DYNAMIC_STORAGE_BIT);
+
+	GLuint skyboxTexture = CreateCubeMap("Assets/Textures/Clarens Night 02/");
+	glBindTextureUnit(0, skyboxTexture);
+
+	glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+
+	// Set to line mode.
+	//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	//glLineWidth(2);
+
+	// Set modern original coordinate and fit NDC z to [0, 1].
+	glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glEnable(GL_DEPTH_TEST);
-	glEnable(GL_PROGRAM_POINT_SIZE);
+	glEnable(GL_MULTISAMPLE);
+	
+	GLfloat clearColor[] = { 0.32f, 0.51f, 0.39f, 1.0f };
+	GLfloat* clearDepth = new GLfloat(1.0f);
+	
+	MatrixUBO ubo;
+	Light sun;
 
-	std::vector<vertex_t> const vertices_cube =
-	{
-		vertex_t(glm::vec3(-0.5f, 0.5f,-0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f,-1.0f), glm::vec2(0.0f, 0.0f)),
-		vertex_t(glm::vec3(0.5f, 0.5f,-0.5f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f,-1.0f), glm::vec2(1.0f, 0.0f)),
-		vertex_t(glm::vec3(0.5f,-0.5f,-0.5f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 0.0f,-1.0f), glm::vec2(1.0f, 1.0f)),
-		vertex_t(glm::vec3(-0.5f,-0.5f,-0.5f), glm::vec3(1.0f, 0.0f, 1.0f), glm::vec3(0.0f, 0.0f,-1.0f), glm::vec2(0.0f, 1.0f)),
-
-		vertex_t(glm::vec3(0.5f, 0.5f,-0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 0.0f)),
-		vertex_t(glm::vec3(0.5f, 0.5f, 0.5f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 0.0f)),
-		vertex_t(glm::vec3(0.5f,-0.5f, 0.5f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 1.0f)),
-		vertex_t(glm::vec3(0.5f,-0.5f,-0.5f), glm::vec3(1.0f, 0.0f, 1.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 1.0f)),
-
-		vertex_t(glm::vec3(0.5f, 0.5f, 0.5f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(1.0f, 0.0f)),
-		vertex_t(glm::vec3(-0.5f, 0.5f, 0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(0.0f, 0.0f)),
-		vertex_t(glm::vec3(-0.5f,-0.5f, 0.5f), glm::vec3(1.0f, 0.0f, 1.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(0.0f, 1.0f)),
-		vertex_t(glm::vec3(0.5f,-0.5f, 0.5f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(1.0f, 1.0f)),
-
-		vertex_t(glm::vec3(-0.5f, 0.5f, 0.5f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 0.0f)),
-		vertex_t(glm::vec3(-0.5f, 0.5f,-0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 0.0f)),
-		vertex_t(glm::vec3(-0.5f,-0.5f,-0.5f), glm::vec3(1.0f, 0.0f, 1.0f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 1.0f)),
-		vertex_t(glm::vec3(-0.5f,-0.5f, 0.5f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 1.0f)),
-
-		vertex_t(glm::vec3(-0.5f, 0.5f, 0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(0.0f, 0.0f)),
-		vertex_t(glm::vec3(0.5f, 0.5f, 0.5f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(1.0f, 0.0f)),
-		vertex_t(glm::vec3(0.5f, 0.5f,-0.5f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(1.0f, 1.0f)),
-		vertex_t(glm::vec3(-0.5f, 0.5f,-0.5f), glm::vec3(1.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(0.0f, 1.0f)),
-
-		vertex_t(glm::vec3(0.5f,-0.5f, 0.5f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f,-1.0f, 0.0f), glm::vec2(1.0f, 0.0f)),
-		vertex_t(glm::vec3(-0.5f,-0.5f, 0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f,-1.0f, 0.0f), glm::vec2(0.0f, 0.0f)),
-		vertex_t(glm::vec3(-0.5f,-0.5f,-0.5f), glm::vec3(1.0f, 0.0f, 1.0f), glm::vec3(0.0f,-1.0f, 0.0f), glm::vec2(0.0f, 1.0f)),
-		vertex_t(glm::vec3(0.5f,-0.5f,-0.5f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f,-1.0f, 0.0f), glm::vec2(1.0f, 1.0f)),
-	};
-
-	std::vector<vertex_t> const	vertices_quad =
-	{
-		vertex_t(glm::vec3(-0.5f, 0.0f, 0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(0.0f, 0.0f)),
-		vertex_t(glm::vec3(0.5f, 0.0f, 0.5f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(1.0f, 0.0f)),
-		vertex_t(glm::vec3(0.5f, 0.0f,-0.5f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(1.0f, 1.0f)),
-		vertex_t(glm::vec3(-0.5f, 0.0f,-0.5f), glm::vec3(1.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(0.0f, 1.0f)),
-	};
-
-	std::vector<uint8_t> const indices_cube =
-	{
-		0,   1,  2,  2,  3,  0,
-		4,   5,  6,  6,  7,  4,
-		8,   9, 10, 10, 11,  8,
-
-		12, 13, 14, 14, 15, 12,
-		16, 17, 18, 18, 19, 16,
-		20, 21, 22, 22, 23, 20,
-	};
-
-	std::vector<uint8_t> const indices_quad =
-	{
-		0,   1,  2,  2,  3,  0,
-	};
-
-	auto const texture_cube_diffuse = create_texture_2d_from_file("./textures/T_Default_D.png", STBI_rgb);
-	auto const texture_cube_specular = create_texture_2d_from_file("./textures/T_Default_S.png", STBI_grey);
-	auto const texture_cube_normal = create_texture_2d_from_file("./textures/T_Default_N.png", STBI_rgb);
-	auto const texture_skybox = create_texture_cube_from_file({
-			"./textures/TC_SkySpace_Xn.png",
-			"./textures/TC_SkySpace_Xp.png",
-			"./textures/TC_SkySpace_Yn.png",
-			"./textures/TC_SkySpace_Yp.png",
-			"./textures/TC_SkySpace_Zn.png",
-			"./textures/TC_SkySpace_Zp.png"
-		});
-
-	/* framebuffer textures */
-	auto const texture_gbuffer_color = create_texture_2d(GL_RGB8, GL_RGB, screen_width, screen_height, nullptr, GL_NEAREST);
-	auto const texture_gbuffer_position = create_texture_2d(GL_RGB16F, GL_RGB, screen_width, screen_height, nullptr, GL_NEAREST);
-	auto const texture_gbuffer_normal = create_texture_2d(GL_RGB16F, GL_RGB, screen_width, screen_height, nullptr, GL_NEAREST);
-	auto const texture_gbuffer_albedo = create_texture_2d(GL_RGBA16F, GL_RGBA, screen_width, screen_height, nullptr, GL_NEAREST);
-	auto const texture_gbuffer_depth = create_texture_2d(GL_DEPTH_COMPONENT32, GL_DEPTH, screen_width, screen_height, nullptr, GL_NEAREST);
-	auto const texture_gbuffer_velocity = create_texture_2d(GL_RG16F, GL_RG, screen_width, screen_height, nullptr, GL_NEAREST);
-	auto const texture_motion_blur = create_texture_2d(GL_RGB8, GL_RGB, screen_width, screen_height, nullptr, GL_NEAREST);
-	auto const texture_motion_blur_mask = create_texture_2d(GL_R8, GL_RED, screen_width, screen_height, nullptr, GL_NEAREST);
-
-	auto const fb_gbuffer = create_framebuffer({ texture_gbuffer_position, texture_gbuffer_normal, texture_gbuffer_albedo, texture_gbuffer_velocity }, texture_gbuffer_depth);
-	auto const fb_finalcolor = create_framebuffer({ texture_gbuffer_color });
-	auto const fb_blur = create_framebuffer({ texture_motion_blur });
-
-	/* vertex formatting information */
-	std::vector<attrib_format_t> const vertex_format =
-	{
-		create_attrib_format<glm::vec3>(0, offsetof(vertex_t, position)),
-		create_attrib_format<glm::vec3>(1, offsetof(vertex_t, color)),
-		create_attrib_format<glm::vec3>(2, offsetof(vertex_t, normal)),
-		create_attrib_format<glm::vec2>(3, offsetof(vertex_t, texcoord))
-	};
-
-	/* geometry buffers */
-	auto const vao_empty = [] { GLuint name = 0; glCreateVertexArrays(1, &name); return name; }();
-	auto const [vao_cube, vbo_cube, ibo_cube] = create_geometry(vertices_cube, indices_cube, vertex_format);
-	auto const [vao_quad, vbo_quad, ibo_quad] = create_geometry(vertices_quad, indices_quad, vertex_format);
-
-	/* shaders */
-	auto const [pr, vert_shader, frag_shader] = create_program("./shaders/main.vert", "./shaders/main.frag");
-	auto const [pr_g, vert_shader_g, frag_shader_g] = create_program("./shaders/gbuffer.vert", "./shaders/gbuffer.frag");
-	auto const [pr_blur, vert_shader_blur, frag_shader_blur] = create_program("./shaders/blur.vert", "./shaders/blur.frag");
-
-	/* uniforms */
-	constexpr auto uniform_projection = 0;
-	constexpr auto uniform_cam_pos = 0;
-	constexpr auto uniform_cam_dir = 0;
-	constexpr auto uniform_view = 1;
-	constexpr auto uniform_fov = 1;
-	constexpr auto uniform_aspect = 2;
-	constexpr auto uniform_modl = 2;
-	constexpr auto uniform_lght = 3;
-	constexpr auto uniform_blur_bias = 0;
-	constexpr auto uniform_uvs_diff = 3;
-	constexpr auto uniform_mvp = 3;
-	constexpr auto uniform_mvp_inverse = 4;
-	constexpr auto uniform_blur_except = 5;
-
-	constexpr auto fov = glm::radians(60.0f);
-	auto const camera_projection = glm::perspective(fov, float(window_width) / float(window_height), 0.1f, 1000.0f);
-	set_uniform(vert_shader_g, uniform_projection, camera_projection);
-
-	auto t1 = glfwGetTime();
-
-	const auto framesToAverage = 10;
-	auto deltaTimeAverage = 0.0;  // first moment
-	auto frameCounter = 0;
-
-	std::vector<scene_object_t> objects = {
-		scene_object_t(shape_t::cube),
-		scene_object_t(shape_t::cube),
-		scene_object_t(shape_t::cube),
-		scene_object_t(shape_t::cube),
-		scene_object_t(shape_t::cube),
-		scene_object_t(shape_t::quad)
-	};
-
-	auto curr_time = now();
-	auto frames = int64_t(0);
+	// Render loop.
 	while (!glfwWindowShouldClose(window))
 	{
-		const auto t2 = glfwGetTime();
-		const auto dt = t2 - t1;
-		t1 = t2;
+		glClearNamedFramebufferfv(0, GL_COLOR, 0, clearColor);
+		glClearNamedFramebufferfv(0, GL_DEPTH, 0, clearDepth);
 
-		deltaTimeAverage += dt;
-		frameCounter++;
+		// Send cubemap matrix.
+		ubo = { Camera::Instance().GetProjectionMatrix(), Camera::Instance().GetRotationMatrix() };
+		glNamedBufferSubData(UBOs[0], 0, sizeof(MatrixUBO), &ubo);
 
-		measure_frames(window, deltaTimeAverage, frameCounter, framesToAverage);
+		// Draw skybox.
+		glDepthFunc(GL_LEQUAL);
+		glUseProgram(skybox_program);
+		glDrawMeshTasksNV(0, 1);
+		glDepthFunc(GL_LESS);
 
-		glfwPollEvents();
 
-		static auto rot_x = 0.0f;
-		static auto rot_y = 0.0f;
-		static glm::vec3 camera_position = glm::vec3(0.0f, 0.0f, -7.0f);
-		static glm::quat camera_orientation = glm::vec3(0.0f, 0.0f, 0.0f);
-		auto const camera_forward = camera_orientation * glm::vec3(0.0f, 0.0f, 1.0f);
-		auto const camera_up = camera_orientation * glm::vec3(0.0f, 1.0f, 0.0f);
-		auto const camera_right = camera_orientation * glm::vec3(1.0f, 0.0f, 0.0f);
+		// Send hair matrix.
+		ubo.VP = Camera::Instance().GetViewProjection();
+		glm::mat4 model = glm::scale(glm::mat4(1.0f), glm::vec3(0.01f));
+		model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		model = toMat4(rotateY) * model;
+		ubo.M = model;
+		ubo.CameraPos = Camera::Instance().GetPosition();
+		glNamedBufferSubData(UBOs[0], 0, sizeof(MatrixUBO), &ubo);
 
-		if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-			glfwSetWindowShouldClose(window, GLFW_TRUE);
+		sun.direction = glm::vec3(1.0f, 1.0f, 1.0f);
+		sun.color = glm::vec3(0.1f, 0.3f, 2.0f) * 3.0f;
+		glNamedBufferSubData(UBOs[1], 0, sizeof(Light), &sun);
 
-		if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)	rot_y += 0.025f;
-		if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)	rot_y -= 0.025f;
-		if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)		rot_x -= 0.025f;
-		if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)	rot_x += 0.025f;
+		// Draw Hair.
+		glUseProgram(hair_program);
+		glDrawMeshTasksNV(0, hair.GetHeader().hair_count);
 
-		camera_orientation = glm::quat(glm::vec3(rot_x, rot_y, 0.0f));
 
-		if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) camera_position += camera_forward * 0.1f;
-		if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) camera_position += camera_right * 0.1f;
-		if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) camera_position -= camera_forward * 0.1f;
-		if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) camera_position -= camera_right * 0.1f;
+		// Start the Dear ImGui frame
+		ImGui_ImplOpenGL3_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+		ImGui::Begin("Hello, world!");
+		ImGui::End();
 
-		static float cube_speed = 1.0f;
-		if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) cube_speed -= 0.01f;
-		if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) cube_speed += 0.01f;
+		ImGui::Render();
 
-		auto const camera_view = glm::lookAt(camera_position, camera_position + camera_forward, camera_up);
-
-		/* cube orbit */
-		auto const orbit_center = glm::vec3(0.0f, 0.0f, 0.0f);
-		static auto orbit_progression = 0.0f;
-
-		objects[0].model = glm::translate(orbit_center) * glm::rotate(orbit_progression * cube_speed, glm::vec3(0.0f, 1.0f, 0.0f));
-
-		for (auto i = 0; i < 4; i++)
-		{
-			auto const orbit_amount = (orbit_progression * cube_speed + float(i) * 90.0f * glm::pi<float>() / 180.0f);
-			auto const orbit_pos = orbit_axis(orbit_amount, glm::vec3(-1.0f, -1.0f, 0.0f), glm::vec3(0.0f, 2.0f, 0.0f)) + glm::vec3(-2.0f, 0.0f, 0.0f);
-			objects[1 + i].model = glm::translate(orbit_center + orbit_pos) * glm::rotate(orbit_amount, glm::vec3(0.0f, -1.0f, 0.0f));
-		}
-		orbit_progression += 0.1f;
-
-		objects[5].model = glm::translate(glm::vec3(0.0f, -3.0f, 0.0f)) * glm::scale(glm::vec3(10.0f, 1.0f, 10.0f));
-
-		set_uniform(vert_shader_g, uniform_view, camera_view);
-
-		/* g-buffer pass */
-		static auto const viewport_width = screen_width;
-		static auto const viewport_height = screen_height;
-		glViewport(0, 0, viewport_width, viewport_height);
-
-		auto const depth_clear_val = 1.0f;
-		glClearNamedFramebufferfv(fb_gbuffer, GL_COLOR, 0, glm::value_ptr(glm::vec3(0.0f)));
-		glClearNamedFramebufferfv(fb_gbuffer, GL_COLOR, 1, glm::value_ptr(glm::vec3(0.0f)));
-		glClearNamedFramebufferfv(fb_gbuffer, GL_COLOR, 2, glm::value_ptr(glm::vec4(0.0f)));
-		glClearNamedFramebufferfv(fb_gbuffer, GL_COLOR, 3, glm::value_ptr(glm::vec2(0.0f)));
-		glClearNamedFramebufferfv(fb_gbuffer, GL_DEPTH, 0, &depth_clear_val);
-
-		glBindFramebuffer(GL_FRAMEBUFFER, fb_gbuffer);
-
-		glBindTextureUnit(0, texture_cube_diffuse);
-		glBindTextureUnit(1, texture_cube_specular);
-		glBindTextureUnit(2, texture_cube_normal);
-
-		glBindProgramPipeline(pr_g);
-
-		for (auto& object : objects)
-		{
-			switch (object.shape)
-			{
-			case shape_t::cube: glBindVertexArray(vao_cube); break;
-			case shape_t::quad: glBindVertexArray(vao_quad); break;
-			}
-
-			auto const curr_mvp_inv = camera_projection * camera_view * object.model;
-
-			set_uniform(vert_shader_g, uniform_modl, object.model);
-			set_uniform(vert_shader_g, uniform_mvp, curr_mvp_inv);
-			set_uniform(vert_shader_g, uniform_mvp_inverse, object.mvp_inv_prev);
-			set_uniform(vert_shader_g, uniform_blur_except, object.except);
-
-			object.mvp_inv_prev = curr_mvp_inv;
-
-			for (auto const& object : objects)
-			{
-				switch (object.shape)
-				{
-				case shape_t::cube: glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices_cube.size()), GL_UNSIGNED_BYTE, nullptr); break;
-				case shape_t::quad: glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indices_quad.size()), GL_UNSIGNED_BYTE, nullptr); break;
-				}
-			}
-		}
-
-		/* actual shading pass */
-		glClearNamedFramebufferfv(fb_finalcolor, GL_COLOR, 0, glm::value_ptr(glm::vec3(0.0f)));
-		glClearNamedFramebufferfv(fb_finalcolor, GL_DEPTH, 0, &depth_clear_val);
-
-		glBindFramebuffer(GL_FRAMEBUFFER, fb_finalcolor);
-
-		glBindTextureUnit(0, texture_gbuffer_position);
-		glBindTextureUnit(1, texture_gbuffer_normal);
-		glBindTextureUnit(2, texture_gbuffer_albedo);
-		glBindTextureUnit(3, texture_gbuffer_depth);
-		glBindTextureUnit(4, texture_skybox);
-
-		glBindProgramPipeline(pr);
-		glBindVertexArray(vao_empty);
-
-		set_uniform(frag_shader, uniform_cam_pos, camera_position);
-		set_uniform(vert_shader, uniform_cam_dir, glm::inverse(glm::mat3(camera_view)));
-		set_uniform(vert_shader, uniform_fov, fov);
-		set_uniform(vert_shader, uniform_aspect, float(viewport_width) / float(viewport_height));
-		set_uniform(vert_shader, uniform_uvs_diff, glm::vec2(
-			float(viewport_width) / float(screen_width),
-			float(viewport_height) / float(screen_height)
-		));
-
-		glDrawArrays(GL_TRIANGLES, 0, 6);
-
-		/* motion blur */
-
-		glClearNamedFramebufferfv(fb_blur, GL_COLOR, 0, glm::value_ptr(glm::vec3(0.0f)));
-
-		glBindFramebuffer(GL_FRAMEBUFFER, fb_blur);
-
-		glBindTextureUnit(0, texture_gbuffer_color);
-		glBindTextureUnit(1, texture_gbuffer_velocity);
-
-		glBindProgramPipeline(pr_blur);
-		glBindVertexArray(vao_empty);
-
-		set_uniform(frag_shader_blur, uniform_blur_bias, 2.0f/*float(fps_sum) / float(60)*/);
-		set_uniform(vert_shader_blur, uniform_uvs_diff, glm::vec2(
-			float(viewport_width) / float(screen_width),
-			float(viewport_height) / float(screen_height)
-		));
-
-		glDrawArrays(GL_TRIANGLES, 0, 6);
-
-		/* scale raster */
-		glViewport(0, 0, window_width, window_height);
-
-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		glBlitNamedFramebuffer(fb_blur, 0, 0, 0, viewport_width, viewport_height, 0, 0, window_width, window_height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 		glfwSwapBuffers(window);
+		glfwPollEvents();
 	}
 
-	delete_items(glDeleteBuffers,
-		{
-		vbo_cube,
-		ibo_cube,
-
-		vbo_quad,
-		ibo_quad,
-		});
-	delete_items(glDeleteTextures,
-		{
-		texture_cube_diffuse,
-		texture_cube_specular,
-		texture_cube_normal,
-
-		texture_gbuffer_position,
-		texture_gbuffer_albedo,
-		texture_gbuffer_normal,
-		texture_gbuffer_depth,
-		texture_gbuffer_color,
-
-		texture_skybox,
-
-		texture_motion_blur,
-		texture_motion_blur_mask
-		});
-	delete_items(glDeleteProgram, {
-		vert_shader,
-		frag_shader,
-
-		vert_shader_g,
-		frag_shader_g,
-		});
-
-	delete_items(glDeleteProgramPipelines, { pr, pr_g });
-	delete_items(glDeleteVertexArrays, { vao_cube, vao_empty });
-	delete_items(glDeleteFramebuffers, { fb_gbuffer, fb_finalcolor, fb_blur });
+	// Clean up.
+	glDeleteBuffers(2, UBOs);
+	glDeleteBuffers(2, SSBOs);
 
 	glfwDestroyWindow(window);
 	glfwTerminate();
+
 	return 0;
 }
