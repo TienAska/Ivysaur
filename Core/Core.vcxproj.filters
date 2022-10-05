@@ -13,24 +13,88 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Resource Files\Shaders">
+      <UniqueIdentifier>{17906e18-735c-4b5f-834e-410d09ca316a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files\Textures">
+      <UniqueIdentifier>{c086390d-c411-48ef-a674-c114d8dcfcdc}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files\Models">
+      <UniqueIdentifier>{1da47d7d-9a91-4e25-a0da-d6daee49390a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Resource Files\Textures\Clarens Night 02">
+      <UniqueIdentifier>{12d69ab8-c116-4e28-9b6d-72190cc0b5ef}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Khuon\Khuon\gl3w.c">
+    <ClCompile Include="gl3w.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Khuon\Khuon\camera.h">
+    <ClInclude Include="camera.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Khuon\Khuon\logger.h">
+    <ClInclude Include="logger.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Khuon\Khuon\shader.h">
+    <ClInclude Include="shader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\Assets\Textures\Clarens Night 02\nx.png">
+      <Filter>Resource Files\Textures\Clarens Night 02</Filter>
+    </Image>
+    <Image Include="..\Assets\Textures\Clarens Night 02\ny.png">
+      <Filter>Resource Files\Textures\Clarens Night 02</Filter>
+    </Image>
+    <Image Include="..\Assets\Textures\Clarens Night 02\nz.png">
+      <Filter>Resource Files\Textures\Clarens Night 02</Filter>
+    </Image>
+    <Image Include="..\Assets\Textures\Clarens Night 02\px.png">
+      <Filter>Resource Files\Textures\Clarens Night 02</Filter>
+    </Image>
+    <Image Include="..\Assets\Textures\Clarens Night 02\py.png">
+      <Filter>Resource Files\Textures\Clarens Night 02</Filter>
+    </Image>
+    <Image Include="..\Assets\Textures\Clarens Night 02\pz.png">
+      <Filter>Resource Files\Textures\Clarens Night 02</Filter>
+    </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\Assets\Shaders\base.frag">
+      <Filter>Resource Files\Shaders</Filter>
+    </None>
+    <None Include="..\Assets\Shaders\base.mesh">
+      <Filter>Resource Files\Shaders</Filter>
+    </None>
+    <None Include="..\Assets\Shaders\cube.mesh">
+      <Filter>Resource Files\Shaders</Filter>
+    </None>
+    <None Include="..\Assets\Shaders\hair.frag">
+      <Filter>Resource Files\Shaders</Filter>
+    </None>
+    <None Include="..\Assets\Shaders\hair.mesh">
+      <Filter>Resource Files\Shaders</Filter>
+    </None>
+    <None Include="..\Assets\Shaders\quad.mesh">
+      <Filter>Resource Files\Shaders</Filter>
+    </None>
+    <None Include="..\Assets\Shaders\skybox.frag">
+      <Filter>Resource Files\Shaders</Filter>
+    </None>
+    <None Include="..\Assets\Shaders\skybox.mesh">
+      <Filter>Resource Files\Shaders</Filter>
+    </None>
+    <None Include="..\Assets\Models\DamagedHelmet.gltf">
+      <Filter>Resource Files\Models</Filter>
+    </None>
+    <None Include="..\Assets\Models\wWavyThin.hair">
+      <Filter>Resource Files\Models</Filter>
+    </None>
   </ItemGroup>
 </Project>

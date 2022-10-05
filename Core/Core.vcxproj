@@ -76,13 +76,33 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\Khuon\Khuon\gl3w.c" />
+    <ClCompile Include="gl3w.c" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Khuon\Khuon\camera.h" />
-    <ClInclude Include="..\..\Khuon\Khuon\logger.h" />
-    <ClInclude Include="..\..\Khuon\Khuon\shader.h" />
+    <ClInclude Include="camera.h" />
+    <ClInclude Include="logger.h" />
+    <ClInclude Include="shader.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\Assets\Textures\Clarens Night 02\nx.png" />
+    <Image Include="..\Assets\Textures\Clarens Night 02\ny.png" />
+    <Image Include="..\Assets\Textures\Clarens Night 02\nz.png" />
+    <Image Include="..\Assets\Textures\Clarens Night 02\px.png" />
+    <Image Include="..\Assets\Textures\Clarens Night 02\py.png" />
+    <Image Include="..\Assets\Textures\Clarens Night 02\pz.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\Assets\Models\DamagedHelmet.gltf" />
+    <None Include="..\Assets\Models\wWavyThin.hair" />
+    <None Include="..\Assets\Shaders\base.frag" />
+    <None Include="..\Assets\Shaders\base.mesh" />
+    <None Include="..\Assets\Shaders\cube.mesh" />
+    <None Include="..\Assets\Shaders\hair.frag" />
+    <None Include="..\Assets\Shaders\hair.mesh" />
+    <None Include="..\Assets\Shaders\quad.mesh" />
+    <None Include="..\Assets\Shaders\skybox.frag" />
+    <None Include="..\Assets\Shaders\skybox.mesh" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
