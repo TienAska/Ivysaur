@@ -78,6 +78,10 @@ class Shader
 			std::filesystem::path path = folder / entry.path().filename();
             if (std::filesystem::is_regular_file(path))
 			{
+                if (!std::filesystem::exists(cacheFolder))
+                {
+                    std::filesystem::create_directory(cacheFolder);
+                }
 				std::filesystem::path cachePath = cacheFolder / entry.path().filename();
                 if (std::filesystem::is_regular_file(cachePath)) return;
                 
