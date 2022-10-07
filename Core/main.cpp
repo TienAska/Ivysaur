@@ -198,9 +198,9 @@ static void cursor_position_callback(GLFWwindow* window, double xpos, double ypo
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
 	if (button == GLFW_MOUSE_BUTTON_RIGHT)
-		cameraRotate = action != GLFW_RELEASE ? true : false;
-	if (button == GLFW_MOUSE_BUTTON_LEFT)
-		modelRotate = action != GLFW_RELEASE ? true : false;
+		cameraRotate = action != GLFW_RELEASE;
+	if (button == GLFW_MOUSE_BUTTON_LEFT && !(mods ^ GLFW_MOD_SHIFT))
+		modelRotate = action != GLFW_RELEASE;
 }
 
 GLuint CreateCubeMap(std::filesystem::path path)
@@ -254,7 +254,7 @@ int main(int argc, char* argv[])
 	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
 	glfwWindowHint(GLFW_SAMPLES, 8);
 
-	auto window = glfwCreateWindow(1440, 960, "Khuon", nullptr, nullptr);
+	auto window = glfwCreateWindow(1920, 1200, "Khuon", nullptr, nullptr);
 	if (!window) 
 	{
 		glfwTerminate();
@@ -330,9 +330,9 @@ int main(int argc, char* argv[])
 	GLuint SSBOs[2]; glCreateBuffers(2, SSBOs);
 	glBindBuffersBase(GL_SHADER_STORAGE_BUFFER, 0, 2, SSBOs);
 	// vertices
-	glNamedBufferStorage(SSBOs[0], sizeof(float) * 3 * hair.GetHeader().point_count, hair.GetPointsArray(), GL_DYNAMIC_STORAGE_BIT);
+	glNamedBufferStorage(SSBOs[0], sizeof(float) * 3 * hair.GetHeader().point_count, hair.GetPointsArray(), GL_NONE);
 	// meshlets
-	glNamedBufferStorage(SSBOs[1], sizeof(Meshlet) * meshlets.size(), meshlets.data(), GL_DYNAMIC_STORAGE_BIT);
+	glNamedBufferStorage(SSBOs[1], sizeof(Meshlet) * meshlets.size(), meshlets.data(), GL_NONE);
 
 	GLuint skyboxTexture = CreateCubeMap("Assets/Textures/Clarens Night 02/");
 	glBindTextureUnit(0, skyboxTexture);
@@ -360,6 +360,8 @@ int main(int argc, char* argv[])
 	// Render loop.
 	while (!glfwWindowShouldClose(window))
 	{
+		glfwPollEvents();
+
 		glClearNamedFramebufferfv(0, GL_COLOR, 0, clearColor);
 		glClearNamedFramebufferfv(0, GL_DEPTH, 0, clearDepth);
 
@@ -404,7 +406,6 @@ int main(int argc, char* argv[])
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
 		glfwSwapBuffers(window);
-		glfwPollEvents();
 	}
 
 	// Clean up.

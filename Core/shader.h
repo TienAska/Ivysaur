@@ -24,7 +24,6 @@ class Shader
             file.read(reinterpret_cast<char*>(binaryCache.data()), fileSize);
             file.close();
 
-            shaderc_shader_kind kind = shaderc_mesh_shader;
             GLenum type = GL_MESH_SHADER_NV;
             if (path.extension() == ".mesh")
             {
@@ -58,13 +57,12 @@ class Shader
                 glDeleteShader(m_Id);
                 m_Id = 0;
 
-                spdlog::error("shader {0} contains error(s):\n\n{1}", path.filename().string().c_str(),
-                    compiler_log.data());
+				LOG_RUNTIME_ERROR("shader {0} contains error(s):\n\n{1}", path.filename().string().c_str(), compiler_log.data());
             }
         }
         else
         {
-            spdlog::error("Shader: {} not exists!", path.string().c_str());
+            LOG_RUNTIME_ERROR("Shader: {} not exists!", path.string().c_str());
         }
     }
 
@@ -88,21 +86,17 @@ class Shader
                 file.close();
 
                 shaderc_shader_kind kind = shaderc_mesh_shader;
-                GLenum type = GL_MESH_SHADER_NV;
                 if (path.extension() == ".mesh")
                 {
                     kind = shaderc_mesh_shader;
-                    type = GL_MESH_SHADER_NV;
                 }
                 else if (path.extension() == ".vert")
                 {
                     kind = shaderc_vertex_shader;
-                    type = GL_VERTEX_SHADER;
                 }
                 else if (path.extension() == ".frag")
                 {
                     kind = shaderc_fragment_shader;
-                    type = GL_FRAGMENT_SHADER;
                 }
 
                 shaderc::Compiler compiler;
@@ -114,7 +108,7 @@ class Shader
                     compiler.CompileGlslToSpv(source, kind, path.filename().string().c_str(), options);
                 if (result.GetCompilationStatus() != shaderc_compilation_status_success)
                 {
-                    spdlog::error("\n" + result.GetErrorMessage());
+                    LOG_RUNTIME_ERROR("\n" + result.GetErrorMessage());
                 }
                 else
                 {
@@ -146,7 +140,7 @@ class Shader
             glDeleteProgram(program);
             program = 0;
 
-            spdlog::error("program contains error(s):\n\n{}", compiler_log.data());
+            LOG_RUNTIME_ERROR("program contains error(s):\n\n{}", compiler_log.data());
         }
 
         glDetachShader(program, first.GetID());
