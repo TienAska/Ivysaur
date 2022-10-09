@@ -317,6 +317,7 @@ int main(int argc, char* argv[])
 	// Shader compilation.
 	GLuint skybox_program = Shader::CreateProgram("skybox.mesh", "skybox.frag");
 	GLuint hair_program = Shader::CreateProgram("hair.mesh", "hair.frag");
+	GLuint cube_program = Shader::CreateProgram("cube.mesh", "base.frag");
 
 
 	GLuint UBOs[2];	glCreateBuffers(2, UBOs);
@@ -375,14 +376,22 @@ int main(int argc, char* argv[])
 		glDrawMeshTasksNV(0, 1);
 		glDepthFunc(GL_LESS);
 
+		// Uniform Buffer
+		ubo.VP = Camera::Instance().GetViewProjection();
+		glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+		ubo.M = model;
+		ubo.CameraPos = Camera::Instance().GetPosition();
+		glNamedBufferSubData(UBOs[0], 0, sizeof(MatrixUBO), &ubo);
+		
+		glUseProgram(cube_program);
+		glDrawMeshTasksNV(0, 1);
+
 
 		// Send hair matrix.
-		ubo.VP = Camera::Instance().GetViewProjection();
-		glm::mat4 model = glm::scale(glm::mat4(1.0f), glm::vec3(0.01f));
+		model = glm::scale(glm::mat4(1.0f), glm::vec3(0.01f));
 		model = glm::rotate(model, glm::radians(-90.0f), glm::vec3(1.0f, 0.0f, 0.0f));
 		model = toMat4(rotateY) * model;
 		ubo.M = model;
-		ubo.CameraPos = Camera::Instance().GetPosition();
 		glNamedBufferSubData(UBOs[0], 0, sizeof(MatrixUBO), &ubo);
 
 		sun.direction = glm::vec3(1.0f, 1.0f, 1.0f);

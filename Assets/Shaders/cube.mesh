@@ -4,14 +4,16 @@
 layout(local_size_x = 8) in;
 layout(triangles, max_vertices = 8, max_primitives = 12) out;
  
-layout(std140, binding = 0) uniform UBO
-{
-	mat4 MVP;
-};
+layout (std140, binding = 0) uniform uniforms_t
+{ 
+  mat4 ViewProjectionMatrix;
+  mat4 ModelMatrix;
+} transform_ub;
 
 // Custom vertex output block
 layout (location = 0) out PerVertexData
 {
+  vec4 color;
   vec2 uv;
 } vertex_out[];  // [max_vertices]
  
@@ -43,7 +45,7 @@ void main()
     uint thread_id = gl_LocalInvocationID.x;
     
     // Vertices
-    gl_MeshVerticesNV[thread_id].gl_Position = MVP * vertices[thread_id];
+    gl_MeshVerticesNV[thread_id].gl_Position = transform_ub.ViewProjectionMatrix * transform_ub.ModelMatrix * vertices[thread_id];
 
     // UV
     vertex_out[thread_id].uv = texcoord0[thread_id];
