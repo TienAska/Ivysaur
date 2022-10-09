@@ -317,7 +317,9 @@ int main(int argc, char* argv[])
 	// Shader compilation.
 	GLuint skybox_program = Shader::CreateProgram("skybox.mesh", "skybox.frag");
 	GLuint hair_program = Shader::CreateProgram("hair.mesh", "hair.frag");
-	GLuint cube_program = Shader::CreateProgram("cube.mesh", "base.frag");
+
+	Shader cube_mesh("cube.mesh"), base_frag("base.frag");
+	GLuint cube_program = Shader::CreateProgram(cube_mesh, base_frag);
 
 
 	GLuint UBOs[2];	glCreateBuffers(2, UBOs);
@@ -408,6 +410,10 @@ int main(int argc, char* argv[])
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
 		ImGui::Begin("Hello, world!");
+		if (ImGui::Button("Refresh Shader"))
+		{
+			Shader::UpdateProgram(cube_program, cube_mesh, base_frag);
+		}
 		ImGui::End();
 
 		ImGui::Render();

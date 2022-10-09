@@ -10,5 +10,5 @@ layout(location = 0) in PerVertexData
  
 void main()
 {
-  FragColor = vec4(frag_in.uv, 0.0, 1.0);
+  FragColor = vec4(frag_in.uv, 1.0, 1.0);
 }

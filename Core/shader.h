@@ -9,8 +9,8 @@
 
 class Shader
 {
-  public:
-    Shader(const char *filename)
+public:
+    Shader(const char* filename) : m_Filename(filename)
     {
         std::filesystem::path path = cacheFolder / filename;
         if (std::filesystem::is_regular_file(path))
@@ -24,21 +24,20 @@ class Shader
             file.read(reinterpret_cast<char*>(binaryCache.data()), fileSize);
             file.close();
 
-            GLenum type = GL_MESH_SHADER_NV;
             if (path.extension() == ".mesh")
             {
-                type = GL_MESH_SHADER_NV;
+                m_Type = GL_MESH_SHADER_NV;
             }
             else if (path.extension() == ".vert")
             {
-                type = GL_VERTEX_SHADER;
+                m_Type = GL_VERTEX_SHADER;
             }
             else if (path.extension() == ".frag")
             {
-                type = GL_FRAGMENT_SHADER;
+                m_Type = GL_FRAGMENT_SHADER;
             }
 
-            m_Id = glCreateShader(type);
+            m_Id = glCreateShader(m_Type);
             GLsizei size = static_cast<GLsizei>(binaryCache.size()) * sizeof(uint32_t);
             glShaderBinary(1, &m_Id, GL_SHADER_BINARY_FORMAT_SPIR_V, binaryCache.data(), size);
 
@@ -139,12 +138,12 @@ class Shader
             glGetProgramiv(program, GL_INFO_LOG_LENGTH, &maxLength);
 
             // The maxLength includes the NULL character
-            std::vector<GLchar> compiler_log(maxLength);
-            glGetProgramInfoLog(program, static_cast<GLsizei>(compiler_log.size()), nullptr, compiler_log.data());
+            std::vector<GLchar> linker_log(maxLength);
+            glGetProgramInfoLog(program, static_cast<GLsizei>(linker_log.size()), nullptr, linker_log.data());
             glDeleteProgram(program);
             program = 0;
 
-            LOG_RUNTIME_ERROR("program contains error(s):\n\n{}", compiler_log.data());
+            LOG_RUNTIME_ERROR("program contains error(s):\n\n{}", linker_log.data());
         }
 
         glDetachShader(program, first.GetID());
@@ -156,12 +155,110 @@ class Shader
     {
         return CreateProgram(Shader(first), Shader(second));
     }
+    
+    static void UpdateProgram(GLuint program, Shader& first, Shader& second)
+    {
+        first.Refresh();
+        second.Refresh();
 
-  private:
+		glAttachShader(program, first.GetID());
+		glAttachShader(program, second.GetID());
+		glLinkProgram(program);
+
+		GLint linked;
+		glGetProgramiv(program, GL_LINK_STATUS, &linked);
+		if (linked == GL_FALSE)
+		{
+			GLint maxLength = 0;
+			glGetProgramiv(program, GL_INFO_LOG_LENGTH, &maxLength);
+
+			// The maxLength includes the NULL character
+			std::vector<GLchar> linker_log(maxLength);
+			glGetProgramInfoLog(program, static_cast<GLsizei>(linker_log.size()), nullptr, linker_log.data());
+			//glDeleteProgram(program);
+			//program = 0;
+
+			LOG_RUNTIME_ERROR("program contains error(s):\n\n{}", linker_log.data());
+		}
+
+		glDetachShader(program, first.GetID());
+		glDetachShader(program, second.GetID());
+
+    }
+
+
+private:
+    void Refresh()
+    {
+		std::filesystem::path path = folder / m_Filename;
+		std::filesystem::path cachePath = cacheFolder / m_Filename;
+
+		std::fstream file(path);
+		std::string source(std::istreambuf_iterator<char>(file), {});
+		file.close();
+
+		shaderc_shader_kind kind = shaderc_mesh_shader;
+		if (path.extension() == ".mesh")
+		{
+			kind = shaderc_mesh_shader;
+		}
+		else if (path.extension() == ".vert")
+		{
+			kind = shaderc_vertex_shader;
+		}
+		else if (path.extension() == ".frag")
+		{
+			kind = shaderc_fragment_shader;
+		}
+
+		shaderc::Compiler compiler;
+		shaderc::CompileOptions options;
+		options.SetTargetEnvironment(shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
+		options.SetOptimizationLevel(shaderc_optimization_level_zero);
+		options.SetGenerateDebugInfo();
+		shaderc::SpvCompilationResult result =
+			compiler.CompileGlslToSpv(source, kind, path.filename().string().c_str(), options);
+		if (result.GetCompilationStatus() != shaderc_compilation_status_success)
+		{
+			LOG_RUNTIME_ERROR("\n" + result.GetErrorMessage());
+            return;
+		}
+
+        const char* data = reinterpret_cast<const char*>(result.cbegin());
+        size_t size = std::distance(result.cbegin(), result.cend()) * sizeof(uint32_t);
+		file.open(cachePath, std::ios::out | std::ios::trunc | std::ios::binary);
+		file.write(data, size);
+		file.close();
+
+        glDeleteShader(m_Id);
+        m_Id = glCreateShader(m_Type);
+		glShaderBinary(1, &m_Id, GL_SHADER_BINARY_FORMAT_SPIR_V, data, static_cast<GLsizei>(size));
+
+		glSpecializeShader(m_Id, "main", 0, nullptr, nullptr);
+
+		GLint compiled;
+		glGetShaderiv(m_Id, GL_COMPILE_STATUS, &compiled);
+		if (compiled == GL_FALSE)
+		{
+			GLint maxLength = 0;
+			glGetShaderiv(m_Id, GL_INFO_LOG_LENGTH, &maxLength);
+
+			// The maxLength includes the NULL character
+			std::vector<GLchar> compiler_log(maxLength);
+			glGetShaderInfoLog(m_Id, static_cast<GLsizei>(compiler_log.size()), nullptr, compiler_log.data());
+			glDeleteShader(m_Id);
+			m_Id = 0;
+
+			LOG_RUNTIME_ERROR("shader {0} contains error(s):\n\n{1}", cachePath.filename().string().c_str(), compiler_log.data());
+		}
+    }
+
     static const std::filesystem::path folder;
     static const std::filesystem::path cacheFolder;
 
     GLuint m_Id = 0;
+    GLenum m_Type = GL_MESH_SHADER_NV;
+    const char* m_Filename;
 };
 
 const std::filesystem::path Shader::folder = "Assets/Shaders/";
