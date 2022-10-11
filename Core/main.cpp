@@ -307,19 +307,26 @@ int main(int argc, char* argv[])
 		//glDebugMessageControl(GL_DEBUG_SOURCE_API, GL_DEBUG_TYPE_ERROR, GL_DEBUG_SEVERITY_HIGH, 0, nullptr, GL_TRUE);
 	}
 
-	Shader::GenerateCaches();
-
 	cyHairFile hair = cyHairFile();
 	float* dirs = nullptr;
 	LoadHairModel("Assets/Models/wWavyThin.hair", hair, dirs);
 	std::vector<Meshlet> meshlets = BuildMeshlets(hair);
 
 	// Shader compilation.
-	GLuint skybox_program = Shader::CreateProgram("skybox.mesh", "skybox.frag");
-	GLuint hair_program = Shader::CreateProgram("hair.mesh", "hair.frag");
+	std::shared_ptr<Shader> skyboxMesh = std::make_shared<Shader>("skybox.mesh");
+	std::shared_ptr<Shader> skyboxFrag = std::make_shared<Shader>("skybox.frag");
+	Program skybox_program;
+	skybox_program.Link(skyboxMesh, skyboxFrag);
 
-	Shader cube_mesh("cube.mesh"), base_frag("base.frag");
-	GLuint cube_program = Shader::CreateProgram(cube_mesh, base_frag);
+	std::shared_ptr<Shader> hairMesh = std::make_shared<Shader>("hair.mesh");
+	std::shared_ptr<Shader> hairFrag = std::make_shared<Shader>("hair.frag");
+	Program hair_program;
+	hair_program.Link(hairMesh, hairFrag);
+
+	std::shared_ptr<Shader> cube_mesh = std::make_shared<Shader>("cube.mesh");
+	std::shared_ptr<Shader> base_frag = std::make_shared<Shader>("base.frag");
+	Program cube_program;
+	cube_program.Link(cube_mesh, base_frag);
 
 
 	GLuint UBOs[2];	glCreateBuffers(2, UBOs);
@@ -328,7 +335,7 @@ int main(int argc, char* argv[])
 	glNamedBufferData(UBOs[1], sizeof(Light), nullptr, GL_STATIC_DRAW);
 
 
-	glProgramUniform4f(hair_program, 0, hair.GetHeader().d_color[0], hair.GetHeader().d_color[1], hair.GetHeader().d_color[2], hair.GetHeader().d_transparency);
+	glProgramUniform4f(hair_program.GetID(), 0, hair.GetHeader().d_color[0], hair.GetHeader().d_color[1], hair.GetHeader().d_color[2], hair.GetHeader().d_transparency);
 
 	GLuint SSBOs[2]; glCreateBuffers(2, SSBOs);
 	glBindBuffersBase(GL_SHADER_STORAGE_BUFFER, 0, 2, SSBOs);
@@ -374,7 +381,7 @@ int main(int argc, char* argv[])
 
 		// Draw skybox.
 		glDepthFunc(GL_LEQUAL);
-		glUseProgram(skybox_program);
+		skybox_program.Use();
 		glDrawMeshTasksNV(0, 1);
 		glDepthFunc(GL_LESS);
 
@@ -385,7 +392,7 @@ int main(int argc, char* argv[])
 		ubo.CameraPos = Camera::Instance().GetPosition();
 		glNamedBufferSubData(UBOs[0], 0, sizeof(MatrixUBO), &ubo);
 		
-		glUseProgram(cube_program);
+		cube_program.Use();
 		glDrawMeshTasksNV(0, 1);
 
 
@@ -401,7 +408,7 @@ int main(int argc, char* argv[])
 		glNamedBufferSubData(UBOs[1], 0, sizeof(Light), &sun);
 
 		// Draw Hair.
-		glUseProgram(hair_program);
+		hair_program.Use();
 		glDrawMeshTasksNV(0, hair.GetHeader().hair_count);
 
 
@@ -412,7 +419,7 @@ int main(int argc, char* argv[])
 		ImGui::Begin("Hello, world!");
 		if (ImGui::Button("Refresh Shader"))
 		{
-			Shader::UpdateProgram(cube_program, cube_mesh, base_frag);
+			cube_program.Update();
 		}
 		ImGui::End();
 
