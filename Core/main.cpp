@@ -203,6 +203,12 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 		modelRotate = action != GLFW_RELEASE;
 }
 
+void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+{
+	glViewport(0, 0, width, height);
+	Camera::Instance().SetAspect(width, height);
+}
+
 GLuint CreateCubeMap(std::filesystem::path path)
 {
 	GLuint textureID;
@@ -254,7 +260,7 @@ int main(int argc, char* argv[])
 	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
 	glfwWindowHint(GLFW_SAMPLES, 8);
 
-	auto window = glfwCreateWindow(1920, 1200, "Khuon", nullptr, nullptr);
+	auto window = glfwCreateWindow(1920, 1440, "Ivysaur", nullptr, nullptr);
 	if (!window) 
 	{
 		glfwTerminate();
@@ -264,6 +270,7 @@ int main(int argc, char* argv[])
 	glfwSetKeyCallback(window, key_callback);
 	glfwSetCursorPosCallback(window, cursor_position_callback);
 	glfwSetMouseButtonCallback(window, mouse_button_callback);
+	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
 	glfwMakeContextCurrent(window);
 
@@ -271,6 +278,8 @@ int main(int argc, char* argv[])
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", 24 * 2);
+
 	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
 	//io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
 
@@ -361,7 +370,7 @@ int main(int argc, char* argv[])
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_MULTISAMPLE);
-	
+
 	GLfloat clearColor[] = { 0.32f, 0.51f, 0.39f, 1.0f };
 	GLfloat* clearDepth = new GLfloat(1.0f);
 	
@@ -417,11 +426,9 @@ int main(int argc, char* argv[])
 		ImGui_ImplOpenGL3_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
-		ImGui::Begin("Hello, world!");
-		if (ImGui::Button("Refresh Shader"))
-		{
+		ImGui::Begin("Shaders:", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize);
+		if (ImGui::Button("Refresh cube program"))
 			cube_program.Update();
-		}
 		ImGui::End();
 
 		ImGui::Render();

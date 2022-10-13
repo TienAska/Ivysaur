@@ -48,14 +48,14 @@ public:
 	Camera& SetFoV(float vfov)
 	{
 		m_VFoV = vfov;
-		glm::perspective(m_VFoV, m_Aspect, 0.1f, 10000.0f);
+		m_ProjectionMatrix = glm::perspective(m_VFoV, m_Aspect, 0.1f, 10000.0f);
 		return Instance();
 	}
 
-	Camera& SetAspect(float aspect)
+	Camera& SetAspect(int width, int height)
 	{
-		m_Aspect = aspect;
-		glm::perspective(m_VFoV, m_Aspect, 0.1f, 10000.0f);
+		m_Aspect = static_cast<float>(width) / height;
+		m_ProjectionMatrix = glm::perspective(m_VFoV, m_Aspect, 0.1f, 10000.0f);
 		return Instance();
 	}
 
@@ -88,7 +88,7 @@ public:
 
 private:
 	float m_VFoV = glm::pi<float>() * 0.25f;
-	float m_Aspect = 16.0f / 9.0f;
+	float m_Aspect = 4.0f / 3.0f;
 
 	glm::vec3 m_Position = glm::vec3(0.0f);
 	glm::quat m_Rotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
