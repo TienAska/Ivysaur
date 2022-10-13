@@ -313,20 +313,21 @@ int main(int argc, char* argv[])
 	std::vector<Meshlet> meshlets = BuildMeshlets(hair);
 
 	// Shader compilation.
-	std::shared_ptr<Shader> skyboxMesh = std::make_shared<Shader>("skybox.mesh");
-	std::shared_ptr<Shader> skyboxFrag = std::make_shared<Shader>("skybox.frag");
-	Program skybox_program;
-	skybox_program.Link(skyboxMesh, skyboxFrag);
+	//std::shared_ptr<Shader> skyboxMesh = std::make_shared<Shader>("skybox.mesh");
+	//std::shared_ptr<Shader> skyboxFrag = std::make_shared<Shader>("skybox.frag");
+	//Program skybox_program;
+	//skybox_program.Link(skyboxMesh, skyboxFrag);
 
-	std::shared_ptr<Shader> hairMesh = std::make_shared<Shader>("hair.mesh");
-	std::shared_ptr<Shader> hairFrag = std::make_shared<Shader>("hair.frag");
-	Program hair_program;
-	hair_program.Link(hairMesh, hairFrag);
+	//std::shared_ptr<Shader> hairMesh = std::make_shared<Shader>("hair.mesh");
+	//std::shared_ptr<Shader> hairFrag = std::make_shared<Shader>("hair.frag");
+	//Program hair_program;
+	//hair_program.Link(hairMesh, hairFrag);
 
+	std::shared_ptr<Shader> cube_task = std::make_shared<Shader>("cube.task");
 	std::shared_ptr<Shader> cube_mesh = std::make_shared<Shader>("cube.mesh");
 	std::shared_ptr<Shader> base_frag = std::make_shared<Shader>("base.frag");
 	Program cube_program;
-	cube_program.Link(cube_mesh, base_frag);
+	cube_program.Link(cube_task, cube_mesh, base_frag);
 
 
 	GLuint UBOs[2];	glCreateBuffers(2, UBOs);
@@ -335,7 +336,7 @@ int main(int argc, char* argv[])
 	glNamedBufferData(UBOs[1], sizeof(Light), nullptr, GL_STATIC_DRAW);
 
 
-	glProgramUniform4f(hair_program.GetID(), 0, hair.GetHeader().d_color[0], hair.GetHeader().d_color[1], hair.GetHeader().d_color[2], hair.GetHeader().d_transparency);
+	//glProgramUniform4f(hair_program.GetID(), 0, hair.GetHeader().d_color[0], hair.GetHeader().d_color[1], hair.GetHeader().d_color[2], hair.GetHeader().d_transparency);
 
 	GLuint SSBOs[2]; glCreateBuffers(2, SSBOs);
 	glBindBuffersBase(GL_SHADER_STORAGE_BUFFER, 0, 2, SSBOs);
@@ -381,8 +382,8 @@ int main(int argc, char* argv[])
 
 		// Draw skybox.
 		glDepthFunc(GL_LEQUAL);
-		skybox_program.Use();
-		glDrawMeshTasksNV(0, 1);
+		//skybox_program.Use();
+		//glDrawMeshTasksNV(0, 1);
 		glDepthFunc(GL_LESS);
 
 		// Uniform Buffer
@@ -408,8 +409,8 @@ int main(int argc, char* argv[])
 		glNamedBufferSubData(UBOs[1], 0, sizeof(Light), &sun);
 
 		// Draw Hair.
-		hair_program.Use();
-		glDrawMeshTasksNV(0, hair.GetHeader().hair_count);
+		//hair_program.Use();
+		//glDrawMeshTasksNV(0, hair.GetHeader().hair_count);
 
 
 		// Start the Dear ImGui frame

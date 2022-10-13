@@ -93,5 +93,8 @@
     <None Include="..\Assets\Models\wWavyThin.hair">
       <Filter>Resource Files\Models</Filter>
     </None>
+    <None Include="..\Assets\Shaders\cube.task">
+      <Filter>Resource Files\Shaders</Filter>
+    </None>
   </ItemGroup>
 </Project>

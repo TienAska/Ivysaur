@@ -1,0 +1,16 @@
+#version 460
+#extension GL_NV_mesh_shader : require
+
+layout(local_size_x = 1) in;
+ 
+// taskNV out Task {
+//  uint      baseID;
+//  uint8_t   subIDs[1];
+//} OUT;
+
+void main()
+{
+    uint thread_id = gl_LocalInvocationID.x;
+    
+    gl_TaskCountNV = 64;
+ }

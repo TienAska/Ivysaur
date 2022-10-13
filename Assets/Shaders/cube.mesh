@@ -43,9 +43,21 @@ void main()
     };
 
     uint thread_id = gl_LocalInvocationID.x;
+    uint workgroup_id = gl_WorkGroupID.x;
     
+    float xaxis = workgroup_id / 8;
+    float yaxis = mod(float(workgroup_id), 8.0);
+
+    mat4 translate;
+    translate[0] = vec4(1.0, 0.0, 0.0, 0.0);
+    translate[1] = vec4(0.0, 1.0, 0.0, 0.0);
+    translate[2] = vec4(0.0, 0.0, 1.0, 0.0);
+    translate[3] = vec4(xaxis, yaxis, 0.0, 1.0);
+
     // Vertices
-    gl_MeshVerticesNV[thread_id].gl_Position = transform_ub.ViewProjectionMatrix * transform_ub.ModelMatrix * vertices[thread_id];
+    gl_MeshVerticesNV[thread_id].gl_Position = transform_ub.ViewProjectionMatrix * translate * transform_ub.ModelMatrix * vertices[thread_id];
+
+    
 
     // UV
     vertex_out[thread_id].uv = texcoord0[thread_id];

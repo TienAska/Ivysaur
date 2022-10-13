@@ -9,11 +9,13 @@
 class Shader
 {
 public:
-    Shader(const char* filename) : m_Path(s_Folder / filename), m_Type(GL_MESH_SHADER_NV), m_Id(0)
+    Shader(const char* filename) : m_Path(s_Folder / filename), m_Type(GL_TASK_SHADER_NV), m_Id(0)
     {
         if (std::filesystem::is_regular_file(m_Path))
         {
-            if (m_Path.extension() == ".frag")
+            if (m_Path.extension() == ".mesh")
+                m_Type = GL_MESH_SHADER_NV;
+            else if (m_Path.extension() == ".frag")
                 m_Type = GL_FRAGMENT_SHADER;
 
             m_Id = glCreateShader(m_Type);
@@ -99,12 +101,14 @@ public:
 
     bool Update()
     {
-		if (!m_Mesh->Compile() || !m_Frag->Compile())
+		if (!m_Task->Compile() || !m_Mesh->Compile() || !m_Frag->Compile())
 			return false;
 
+		glAttachShader(m_Id, m_Task->GetID());
 		glAttachShader(m_Id, m_Mesh->GetID());
 		glAttachShader(m_Id, m_Frag->GetID());
 		glLinkProgram(m_Id);
+		glDetachShader(m_Id, m_Task->GetID());
 		glDetachShader(m_Id, m_Mesh->GetID());
 		glDetachShader(m_Id, m_Frag->GetID());
 
@@ -129,20 +133,27 @@ public:
 		return linked;
     }
 
-    bool Link(std::shared_ptr<Shader> mesh, std::shared_ptr<Shader> frag)
+    bool Link(std::shared_ptr<Shader> task, std::shared_ptr<Shader> mesh, std::shared_ptr<Shader> frag)
     {
+        m_Task = task;
 		m_Mesh = mesh;
 		m_Frag = frag;
 
-        NameThePath(mesh->GetPath().filename().stem().string().c_str(), frag->GetPath().filename().stem().string().c_str());
+        NameThePath(
+            m_Task->GetPath().filename().stem().string().c_str(),
+            m_Mesh->GetPath().filename().stem().string().c_str(),
+            m_Frag->GetPath().filename().stem().string().c_str()
+        );
+
         bool needUpdate = true;
         if (std::filesystem::exists(m_Path))
         {
             std::filesystem::file_time_type programTime = std::filesystem::last_write_time(m_Path);
-            std::filesystem::file_time_type meshTime = std::filesystem::last_write_time(mesh->GetPath());
-            std::filesystem::file_time_type fragTime = std::filesystem::last_write_time(frag->GetPath());
+            std::filesystem::file_time_type taskTime = std::filesystem::last_write_time(m_Task->GetPath());
+            std::filesystem::file_time_type meshTime = std::filesystem::last_write_time(m_Mesh->GetPath());
+            std::filesystem::file_time_type fragTime = std::filesystem::last_write_time(m_Frag->GetPath());
 
-            needUpdate = (meshTime > programTime || fragTime > programTime);
+            needUpdate = (taskTime > programTime || meshTime > programTime || fragTime > programTime);
         }
 
         if (needUpdate)
@@ -166,19 +177,21 @@ private:
     GLuint m_Id = 0;
     GLenum m_Format = GL_NONE;
     GLsizei m_Length = 0;
-    std::shared_ptr<Shader> m_Mesh = nullptr, m_Frag = nullptr;
+    std::shared_ptr<Shader> m_Task = nullptr, m_Mesh = nullptr, m_Frag = nullptr;
     std::filesystem::path m_Path;
 
     static const std::filesystem::path s_Folder;
 
-    void NameThePath(const char* mesh, const char* frag)
+    void NameThePath(const char* task, const char* mesh, const char* frag)
     {
 		if (!std::filesystem::exists(s_Folder))
 			std::filesystem::create_directory(s_Folder);
 
-        size_t len = strlen(mesh) + 1 + strlen(frag) + 4 + 1;
+        size_t len = strlen(task) + 1 + strlen(mesh) + 1 + strlen(frag) + 4 + 1;
         char* filename = new char[len];
         filename[0] = '\0';
+        strcat_s(filename, len, task);
+        strcat_s(filename, len, "_");
         strcat_s(filename, len, mesh);
         strcat_s(filename, len, "_");
         strcat_s(filename, len, frag);
