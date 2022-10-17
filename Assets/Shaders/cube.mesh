@@ -4,6 +4,17 @@
 layout(local_size_x = 8) in;
 layout(triangles, max_vertices = 8, max_primitives = 12) out;
  
+out uint gl_PrimitiveCountNV;
+out uint gl_PrimitiveIndicesNV[];
+ 
+out gl_MeshPerVertexNV {
+    vec4 gl_Position;
+} gl_MeshVerticesNV[];
+
+out gl_PerVertex {
+    vec4 gl_Position;
+};
+
 layout (std140, binding = 0) uniform uniforms_t
 { 
   mat4 ViewProjectionMatrix;
@@ -17,7 +28,8 @@ layout (location = 0) out PerVertexData
   vec2 uv;
 } vertex_out[];  // [max_vertices]
  
- 
+
+
 void main()
 {
     const vec4 vertices[8] = {

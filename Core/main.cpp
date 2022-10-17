@@ -333,10 +333,18 @@ int main(int argc, char* argv[])
 	//hair_program.Link(hairMesh, hairFrag);
 
 	std::shared_ptr<Shader> cube_task = std::make_shared<Shader>("cube.task");
+	cube_task->Compile();
 	std::shared_ptr<Shader> cube_mesh = std::make_shared<Shader>("cube.mesh");
+	cube_mesh->Compile();
 	std::shared_ptr<Shader> base_frag = std::make_shared<Shader>("base.frag");
-	Program cube_program;
-	cube_program.Link(cube_task, cube_mesh, base_frag);
+	base_frag->Compile();
+	//Program cube_program;
+	//cube_program.Link(cube_task, cube_mesh, base_frag);
+	GLuint cube_program;
+	glCreateProgramPipelines(1, &cube_program);
+	glUseProgramStages(cube_program, GL_TASK_SHADER_BIT_NV, cube_task->GetID());
+	glUseProgramStages(cube_program, GL_MESH_SHADER_BIT_NV, cube_mesh->GetID());
+	glUseProgramStages(cube_program, GL_FRAGMENT_SHADER_BIT, base_frag->GetID());
 
 
 	GLuint UBOs[2];	glCreateBuffers(2, UBOs);
@@ -402,7 +410,8 @@ int main(int argc, char* argv[])
 		ubo.CameraPos = Camera::Instance().GetPosition();
 		glNamedBufferSubData(UBOs[0], 0, sizeof(MatrixUBO), &ubo);
 		
-		cube_program.Use();
+		//cube_program.Use();
+		glBindProgramPipeline(cube_program);
 		glDrawMeshTasksNV(0, 1);
 
 
@@ -427,8 +436,8 @@ int main(int argc, char* argv[])
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
 		ImGui::Begin("Shaders:", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize);
-		if (ImGui::Button("Refresh cube program"))
-			cube_program.Update();
+		//if (ImGui::Button("Refresh cube program"))
+		//	cube_program.Update();
 		ImGui::End();
 
 		ImGui::Render();

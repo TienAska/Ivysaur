@@ -9,55 +9,125 @@
 class Shader
 {
 public:
-    Shader(const char* filename) : m_Path(s_Folder / filename), m_Type(GL_TASK_SHADER_NV), m_Id(0)
+    Shader(const char* filename) : m_SourcePath(s_SourceFolder / filename), m_BinaryPath(s_BinaryFolder / filename), m_Type(GL_TASK_SHADER_NV), m_Id(0)
     {
-        if (std::filesystem::is_regular_file(m_Path))
+        if (std::filesystem::is_regular_file(m_SourcePath))
         {
-            if (m_Path.extension() == ".mesh")
+            if (m_SourcePath.extension() == ".mesh")
                 m_Type = GL_MESH_SHADER_NV;
-            else if (m_Path.extension() == ".frag")
+            else if (m_SourcePath.extension() == ".frag")
                 m_Type = GL_FRAGMENT_SHADER;
 
-            m_Id = glCreateShader(m_Type);
+            //m_Id = glCreateShader(m_Type);
         }
         else
         {
-            LOG_RUNTIME_ERROR("Shader source: {} not exists", m_Path.string());
+            LOG_RUNTIME_ERROR("Shader source: {} not exists", m_SourcePath.string());
         }
     }
 
     ~Shader()
     {
-        glDeleteShader(m_Id);
+        //glDeleteShader(m_Id);
+        if (m_Id != 0)
+        {
+            glDeleteProgram(m_Id);
+        }
     }
 
     bool Compile()
     {
-        std::ifstream file(m_Path);
-        std::string source{ std::istreambuf_iterator<char>(file), {} };
-        file.close();
-        const char* src_Str = source.c_str();
-
-        glShaderSource(m_Id, 1, &src_Str, nullptr);
-
-        glCompileShader(m_Id);
-
-        GLint compiled; glGetShaderiv(m_Id, GL_COMPILE_STATUS, &compiled);
-        if (compiled == GL_FALSE)
+        bool needUpdate = true;
+        if (std::filesystem::exists(m_BinaryPath))
         {
-            GLint maxLength = 0;
-            glGetShaderiv(m_Id, GL_INFO_LOG_LENGTH, &maxLength);
-            
-            // The maxLength includes the NULL character
-            std::vector<GLchar> compiler_log(maxLength);
-            glGetShaderInfoLog(m_Id, maxLength, nullptr, compiler_log.data());
-            glDeleteShader(m_Id);
-            m_Id = 0;
-
-            LOG_RUNTIME_ERROR("Shader {0} contains error(s):\n\n{1}", m_Path.filename().string().c_str(), compiler_log.data());
+            std::filesystem::file_time_type sourceTime = std::filesystem::last_write_time(m_SourcePath);
+            std::filesystem::file_time_type binaryTime = std::filesystem::last_write_time(m_BinaryPath);
+            needUpdate = sourceTime > binaryTime;
         }
+        if (true)
+        {
+            std::ifstream file(m_SourcePath);
+            std::string source{ std::istreambuf_iterator<char>(file), {} };
+            file.close();
+            const char* src_Str = source.c_str();
 
-        return compiled;
+            m_Id = glCreateShaderProgramv(m_Type, 1, &src_Str);
+			GLint linked; glGetProgramiv(m_Id, GL_LINK_STATUS, &linked);
+            if (linked)
+            {
+                Save();
+            }
+            else
+            {
+                GLint maxLength = 0;
+                glGetProgramiv(m_Id, GL_INFO_LOG_LENGTH, &maxLength);
+
+                // The maxLength includes the NULL character
+                std::vector<GLchar> linker_log(maxLength);
+                glGetProgramInfoLog(m_Id, maxLength, nullptr, linker_log.data());
+                glDeleteProgram(m_Id);
+                m_Id = 0;
+
+                LOG_RUNTIME_ERROR("Program {0} contains error(s):\n\n{1}", m_SourcePath.filename().string().c_str(), linker_log.data());
+            }
+            return linked;
+
+            //glShaderSource(m_Id, 1, &src_Str, nullptr);
+            //glCompileShader(m_Id);
+
+            //GLint compiled; glGetShaderiv(m_Id, GL_COMPILE_STATUS, &compiled);
+            //if (compiled)
+            //{
+            //    GLuint program = glCreateProgram();
+            //    glProgramParameteri(program, GL_PROGRAM_SEPARABLE, GL_TRUE);
+            //    glAttachShader(program, m_Id);
+            //    glLinkProgram(program);
+            //    glDetachShader(program, m_Id);
+
+            //    glDeleteShader(m_Id);
+            //    m_Id = program;
+            //    GLint linked; glGetProgramiv(m_Id, GL_LINK_STATUS, &linked);
+            //    if (linked)
+            //    {
+            //        Save();
+            //    }
+            //    else
+            //    {
+            //        GLint maxLength = 0;
+            //        glGetProgramiv(m_Id, GL_INFO_LOG_LENGTH, &maxLength);
+
+            //        // The maxLength includes the NULL character
+            //        std::vector<GLchar> linker_log(maxLength);
+            //        glGetProgramInfoLog(m_Id, maxLength, nullptr, linker_log.data());
+            //        glDeleteProgram(m_Id);
+            //        m_Id = 0;
+
+            //        LOG_RUNTIME_ERROR("Program {0} contains error(s):\n\n{1}", m_SourcePath.filename().string().c_str(), linker_log.data());
+            //    }
+
+            //    return linked;
+            //}
+            //else
+            //{
+            //    GLint maxLength = 0;
+            //    glGetShaderiv(m_Id, GL_INFO_LOG_LENGTH, &maxLength);
+
+            //    // The maxLength includes the NULL character
+            //    std::vector<GLchar> compiler_log(maxLength);
+            //    glGetShaderInfoLog(m_Id, maxLength, nullptr, compiler_log.data());
+            //    glDeleteShader(m_Id);
+            //    m_Id = 0;
+
+            //    LOG_RUNTIME_ERROR("Shader {0} contains error(s):\n\n{1}", m_SourcePath.filename().string().c_str(), compiler_log.data());
+            //}
+
+
+            //return compiled;
+        }
+        else
+        {
+            return Load();
+        }
     }
 
     GLuint GetID() const
@@ -67,18 +137,70 @@ public:
 
     const std::filesystem::path& GetPath() const
     {
-        return m_Path;
+        return m_SourcePath;
     }  
 
 private:
     GLuint m_Id;
     GLenum m_Type;
-    std::filesystem::path m_Path;
+    std::filesystem::path m_SourcePath;
+    std::filesystem::path m_BinaryPath;
 
-    static const std::filesystem::path s_Folder;
+    static const std::filesystem::path s_SourceFolder;
+    static const std::filesystem::path s_BinaryFolder;
+
+    void Save()
+    {
+        GLint length;
+		glGetProgramiv(m_Id, GL_PROGRAM_BINARY_LENGTH, &length);
+		char* binary = new char[length];
+
+        GLenum format;
+		glGetProgramBinary(m_Id, length, nullptr, &format, binary);
+
+		std::fstream file(m_BinaryPath, std::ios::out | std::ios::trunc | std::ios::binary);
+		file.write(binary, length);
+		file.close();
+		delete[] binary;
+    }
+
+	bool Load()
+	{
+		std::streampos fileSize;
+		std::ifstream file(m_BinaryPath, std::ios::binary);
+		file.seekg(0, std::ios::end);
+		fileSize = file.tellg();
+		file.seekg(0, std::ios::beg);
+		char* binary = new char[fileSize];
+		file.read(binary, fileSize);
+		file.close();
+
+		GLint* formats = new GLint;
+		glGetIntegerv(GL_PROGRAM_BINARY_FORMATS, formats);
+		glProgramBinary(m_Id, static_cast<GLenum>(*formats), binary, static_cast<GLsizei>(fileSize));
+		delete formats;
+		delete[] binary;
+
+		GLint linked; glGetProgramiv(m_Id, GL_LINK_STATUS, &linked);
+		if (linked == GL_FALSE)
+		{
+			GLint maxLength = 0;
+			glGetProgramiv(m_Id, GL_INFO_LOG_LENGTH, &maxLength);
+
+			// The maxLength includes the NULL character
+			std::vector<GLchar> linker_log(maxLength);
+			glGetProgramInfoLog(m_Id, maxLength, nullptr, linker_log.data());
+			glDeleteProgram(m_Id);
+			m_Id = 0;
+
+			LOG_RUNTIME_ERROR("program contains error(s):\n\n{}", linker_log.data());
+		}
+        return linked;
+	}
 };
 
-const std::filesystem::path Shader::s_Folder = "Assets/Shaders/";
+const std::filesystem::path Shader::s_SourceFolder = "Assets/Shaders/";
+const std::filesystem::path Shader::s_BinaryFolder = "Assets/ShaderCache/";
 
 
 class Program
@@ -245,12 +367,6 @@ private:
 
 			LOG_RUNTIME_ERROR("program contains error(s):\n\n{}", linker_log.data());
 		}
-    }
-
-    void Delete()
-    {
-		glDeleteProgram(m_Id);
-		m_Id = 0;
     }
 };
 
